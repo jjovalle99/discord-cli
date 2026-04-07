@@ -23,8 +23,8 @@ DISCORD_LEVELDB_PATHS = {
     "Linux": Path.home() / ".config" / "discord" / "Local Storage" / "leveldb",
 }
 
-MACOS_KEYCHAIN_SERVICE = "Discord Safe Storage"
-MACOS_KEYCHAIN_ACCOUNT = "Discord"
+MACOS_KEYCHAIN_SERVICE = "discord Safe Storage"
+MACOS_KEYCHAIN_ACCOUNT = "discord Key"
 MACOS_ITERATIONS = 1003
 LINUX_PASSWORD = "peanuts"
 LINUX_ITERATIONS = 1
@@ -70,7 +70,9 @@ async def run_auth(
             password = LINUX_PASSWORD
             iterations = LINUX_ITERATIONS
 
-        token = decrypt_token(raw_token, password=password, iterations=iterations)
+        token = decrypt_token(
+            raw_token, password=password, iterations=iterations
+        )
     else:
         token = raw_token
 
