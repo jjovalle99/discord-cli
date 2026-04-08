@@ -578,3 +578,187 @@ async def test_read_channel_author_stops_at_scan_cap(
     output = json.loads(capsys.readouterr().out)
     assert len(output) == 0
     assert call_count == pages_needed
+
+
+@pytest.mark.asyncio
+async def test_read_channel_resolve_channels_adds_channel_name(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    channel_info = {"id": "999", "name": "general", "guild_id": "111", "type": 0}
+    guild_channels = [
+        {"id": "999", "name": "general", "type": 0},
+        {"id": "888", "name": "random", "type": 0},
+    ]
+    messages = [
+        {
+            "id": "100",
+            "channel_id": "999",
+            "author": {"id": "1", "username": "alice"},
+            "content": "hello",
+            "type": 0,
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v10/channels/999/messages":
+            return httpx.Response(200, json=messages)
+        if path == "/api/v10/channels/999":
+            return httpx.Response(200, json=channel_info)
+        if path == "/api/v10/guilds/111/channels":
+            return httpx.Response(200, json=guild_channels)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", resolve_channels=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output[0]["channel_name"] == "general"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_resolve_channels_replaces_mentions_in_content(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    channel_info = {"id": "999", "name": "general", "guild_id": "111", "type": 0}
+    guild_channels = [
+        {"id": "999", "name": "general", "type": 0},
+        {"id": "888", "name": "resources", "type": 0},
+    ]
+    messages = [
+        {
+            "id": "100",
+            "channel_id": "999",
+            "author": {"id": "1", "username": "alice"},
+            "content": "Check <#888> for info and <#777> for unknown",
+            "type": 0,
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v10/channels/999/messages":
+            return httpx.Response(200, json=messages)
+        if path == "/api/v10/channels/999":
+            return httpx.Response(200, json=channel_info)
+        if path == "/api/v10/guilds/111/channels":
+            return httpx.Response(200, json=guild_channels)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", resolve_channels=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output[0]["content"] == "Check #resources for info and <#777> for unknown"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_resolve_channels_dm_skips_resolution(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    channel_info = {
+        "id": "999",
+        "type": 1,
+        "recipients": [{"id": "2", "username": "bob"}],
+    }
+    messages = [
+        {
+            "id": "100",
+            "channel_id": "999",
+            "author": {"id": "1", "username": "alice"},
+            "content": "Check <#888> for info",
+            "type": 0,
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v10/channels/999/messages":
+            return httpx.Response(200, json=messages)
+        if path == "/api/v10/channels/999":
+            return httpx.Response(200, json=channel_info)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", resolve_channels=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert "channel_name" not in output[0]
+    assert output[0]["content"] == "Check <#888> for info"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_resolve_channels_seeds_map_from_channel_info(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    channel_info = {
+        "id": "999",
+        "name": "my-thread",
+        "guild_id": "111",
+        "type": 11,
+    }
+    guild_channels = [
+        {"id": "888", "name": "resources", "type": 0},
+    ]
+    messages = [
+        {
+            "id": "100",
+            "channel_id": "999",
+            "author": {"id": "1", "username": "alice"},
+            "content": "hello <#999>",
+            "type": 0,
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v10/channels/999/messages":
+            return httpx.Response(200, json=messages)
+        if path == "/api/v10/channels/999":
+            return httpx.Response(200, json=channel_info)
+        if path == "/api/v10/guilds/111/channels":
+            return httpx.Response(200, json=guild_channels)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", resolve_channels=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output[0]["channel_name"] == "my-thread"
+    assert output[0]["content"] == "hello #my-thread"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_resolve_channels_degrades_on_api_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "channel_id": "999",
+            "author": {"id": "1", "username": "alice"},
+            "content": "Check <#888> for info",
+            "type": 0,
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v10/channels/999/messages":
+            return httpx.Response(200, json=messages)
+        if path == "/api/v10/channels/999":
+            return httpx.Response(403, json={"message": "Missing Access"})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", resolve_channels=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 1
+    assert "channel_name" not in output[0]
+    assert output[0]["content"] == "Check <#888> for info"

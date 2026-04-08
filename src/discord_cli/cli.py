@@ -189,6 +189,7 @@ def read_channel_cmd(
     compact: bool = False,
     author: str | None = None,
     skip_system: bool = False,
+    resolve_channels: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch message history of a channel or thread."""
@@ -200,6 +201,7 @@ def read_channel_cmd(
             compact=compact,
             author=author,
             skip_system=skip_system,
+            resolve_channels=resolve_channels,
         ),
         token,
     )
@@ -213,6 +215,7 @@ def read_thread_cmd(
     compact: bool = False,
     author: str | None = None,
     skip_system: bool = False,
+    resolve_channels: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch messages in a thread (alias for read channel)."""
@@ -224,6 +227,7 @@ def read_thread_cmd(
             compact=compact,
             author=author,
             skip_system=skip_system,
+            resolve_channels=resolve_channels,
         ),
         token,
     )

@@ -1,7 +1,10 @@
+import re
 from typing import Any
 
 from discord_cli.client import DiscordClient
 from discord_cli.output import write_success
+
+_CHANNEL_MENTION_RE = re.compile(r"<#(\d+)>")
 
 
 _AUTHOR_SCAN_CAP = 500
@@ -64,6 +67,41 @@ def _compact_message(msg: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+async def _build_channel_map(client: DiscordClient, channel_id: str) -> dict[str, str]:
+    channel_info = await client.api_get(f"/channels/{channel_id}")
+    result: dict[str, str] = {}
+    if channel_info.get("name"):
+        result[channel_info["id"]] = channel_info["name"]
+    guild_id = channel_info.get("guild_id")
+    if not guild_id:
+        return result
+    channels = await client.api_get_list(f"/guilds/{guild_id}/channels")
+    for ch in channels:
+        if "name" in ch:
+            result[ch["id"]] = ch["name"]
+    return result
+
+
+def _resolve_channels(
+    msg: dict[str, Any], channel_map: dict[str, str]
+) -> dict[str, Any]:
+    msg = dict(msg)
+    ch_id = msg.get("channel_id", "")
+    if ch_id in channel_map:
+        msg["channel_name"] = channel_map[ch_id]
+    content = msg.get("content", "")
+    if content:
+        msg["content"] = _CHANNEL_MENTION_RE.sub(
+            lambda m: (
+                f"#{channel_map[m.group(1)]}"
+                if m.group(1) in channel_map
+                else m.group(0)
+            ),
+            content,
+        )
+    return msg
+
+
 async def read_channel(
     client: DiscordClient,
     *,
@@ -72,6 +110,7 @@ async def read_channel(
     compact: bool = False,
     author: str | None = None,
     skip_system: bool = False,
+    resolve_channels: bool = False,
 ) -> None:
     all_messages: list[dict[str, Any]] = []
     scanned = 0
@@ -110,6 +149,13 @@ async def read_channel(
             params["limit"] = str(min(limit - len(all_messages), 100))
 
     result = all_messages[:limit]
+    if resolve_channels:
+        try:
+            channel_map = await _build_channel_map(client, channel_id)
+        except Exception:
+            channel_map = {}
+        if channel_map:
+            result = [_resolve_channels(msg, channel_map) for msg in result]
     if compact:
         result = [_compact_message(msg) for msg in result]
     write_success(result)
