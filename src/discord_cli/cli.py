@@ -37,9 +37,11 @@ app = cyclopts.App(name="discord-cli", help="Read-only Discord CLI for coding ag
 search_app = cyclopts.App(name="search", help="Search Discord data.")
 read_app = cyclopts.App(name="read", help="Read Discord data.")
 list_app = cyclopts.App(name="list", help="List Discord data.")
+stream_app = cyclopts.App(name="stream", help="Stream real-time Discord events via WebSocket gateway.")
 app.command(search_app)
 app.command(read_app)
 app.command(list_app)
+app.command(stream_app)
 
 
 def _fail(error: str, message: str) -> None:
@@ -504,6 +506,61 @@ def read_file_cmd(
             sys.stdout.buffer.write(data)
 
     _run(_download, token)
+
+
+def _run_stream(
+    fn: Callable[[str, str], Awaitable[None]],
+    token_flag: str | None,
+) -> None:
+    resolved = resolve_token(flag_token=token_flag, config_path=DEFAULT_CONFIG_PATH)
+
+    async def _inner() -> None:
+        from discord_cli.gateway import get_gateway_url
+
+        async with DiscordClient(token=resolved.value) as client:
+            url = await get_gateway_url(client)
+        await fn(resolved.value, url)
+
+    try:
+        _run_with_error_handling(lambda: asyncio.run(_inner()))
+    except KeyboardInterrupt:
+        raise SystemExit(130)
+
+
+@stream_app.command(name="channel")
+def stream_channel_cmd(
+    channel_id: str,
+    *,
+    event: str | None = None,
+    token: str | None = None,
+) -> None:
+    """Stream real-time events for a channel."""
+    from discord_cli.commands.stream import stream_events
+
+    _run_stream(
+        lambda tok, url: stream_events(
+            token=tok, gateway_url=url, channel_id=channel_id, event_type=event,
+        ),
+        token,
+    )
+
+
+@stream_app.command(name="server")
+def stream_server_cmd(
+    guild_id: str,
+    *,
+    event: str | None = None,
+    token: str | None = None,
+) -> None:
+    """Stream real-time events for all channels in a server."""
+    from discord_cli.commands.stream import stream_events
+
+    _run_stream(
+        lambda tok, url: stream_events(
+            token=tok, gateway_url=url, guild_id=guild_id, event_type=event,
+        ),
+        token,
+    )
 
 
 def main() -> None:
