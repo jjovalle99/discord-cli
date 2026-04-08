@@ -11,6 +11,7 @@ from discord_cli.commands.list import (
     list_dms,
     list_members,
     list_servers,
+    list_threads,
 )
 from discord_cli.commands.read import (
     Format,
@@ -198,6 +199,16 @@ def list_members_cmd(
 ) -> None:
     """List members in a server."""
     _run(lambda c: list_members(c, guild_id=guild_id, limit=limit, role=role), token)
+
+
+@list_app.command(name="threads")
+def list_threads_cmd(
+    channel_id: str,
+    *,
+    token: str | None = None,
+) -> None:
+    """List threads in a channel (archived + active from recent messages)."""
+    _run(lambda c: list_threads(c, channel_id=channel_id), token)
 
 
 @read_app.command(name="channel")

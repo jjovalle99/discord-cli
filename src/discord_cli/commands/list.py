@@ -1,6 +1,7 @@
-from typing import Any
+from itertools import chain
+from typing import Any, Literal
 
-from discord_cli.client import DiscordClient
+from discord_cli.client import DiscordAPIError, DiscordClient
 from discord_cli.output import write_success
 
 CHANNEL_TYPE_NAMES: dict[int, str] = {
@@ -55,6 +56,81 @@ async def list_channels(client: DiscordClient, guild_id: str) -> None:
 async def list_dms(client: DiscordClient) -> None:
     channels = await client.api_get_list("/users/@me/channels")
     write_success([_shape_with_type_name(c, _DM_FIELDS) for c in channels])
+
+
+_THREAD_FIELDS = ("id", "name", "message_count")
+
+
+def _shape_thread(raw: dict[str, Any]) -> dict[str, Any]:
+    shaped = _pick(raw, _THREAD_FIELDS)
+    metadata = raw.get("thread_metadata", {})
+    shaped["archived"] = metadata.get("archived", False)
+    return shaped
+
+
+_ACTIVE_THREAD_SCAN_LIMIT = 100
+
+
+async def _fetch_archived(
+    client: DiscordClient, channel_id: str, kind: Literal["public", "private"]
+) -> list[dict[str, Any]]:
+    threads: list[dict[str, Any]] = []
+    params: dict[str, str] = {}
+    while True:
+        try:
+            data = await client.api_get(
+                f"/channels/{channel_id}/threads/archived/{kind}",
+                params=params or None,
+            )
+        except DiscordAPIError as e:
+            if e.status in (403, 404):
+                break
+            raise
+        page_threads: list[dict[str, Any]] = data.get("threads", [])
+        threads.extend(page_threads)
+        if not data.get("has_more", False) or not page_threads:
+            break
+        last_ts = (
+            page_threads[-1]
+            .get("thread_metadata", {})
+            .get("archive_timestamp", "")
+        )
+        if not last_ts:
+            break
+        params["before"] = last_ts
+    return threads
+
+
+async def list_threads(client: DiscordClient, channel_id: str) -> None:
+    import asyncio
+
+    public_coro = _fetch_archived(client, channel_id, "public")
+    private_coro = _fetch_archived(client, channel_id, "private")
+    messages_coro = client.api_get_list(
+        f"/channels/{channel_id}/messages",
+        params={"limit": str(_ACTIVE_THREAD_SCAN_LIMIT)},
+    )
+    public_threads, private_threads, messages = await asyncio.gather(
+        public_coro, private_coro, messages_coro
+    )
+
+    threads: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for t in chain(public_threads, private_threads):
+        tid = t.get("id", "")
+        if tid not in seen:
+            seen.add(tid)
+            threads.append(_shape_thread(t))
+
+    for msg in messages:
+        thread = msg.get("thread")
+        if thread is not None:
+            tid = thread.get("id", "")
+            if tid not in seen:
+                seen.add(tid)
+                threads.append(_shape_thread(thread))
+
+    write_success(threads)
 
 
 def _shape_member(
