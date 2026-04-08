@@ -193,7 +193,21 @@
 - 2 new tests (parametrized CLI-level test covering both `--channel` and `--channel-id` flag acceptance)
 - Edge case: existing scripts using `--channel-id` continue to work without changes
 
+## Issue #18: local response cache with TTL — DONE
+- `--cache-ttl <seconds>` flag on all JSON-output commands (list, read, search)
+- `--no-cache` flag bypasses both cache read and write
+- Default TTL: 0 (no cache, current behavior preserved)
+- Cache key: SHA256 of command argv + resolved token (scoped per credential)
+- Cache location: `~/.config/discord-cli/cache/`
+- File mtime used for TTL checking
+- stdout captured via `redirect_stdout` + `io.StringIO`, replayed on cache hit
+- Cache I/O failures silently degraded (OSError caught, output still emitted)
+- `read file` excluded (binary output incompatible with stdout capture)
+- 5 new tests (store/retrieve/expiry, key computation, cache hit/miss, no-cache bypass, write failure survival)
+- Edge case: `--no-cache` with `cache_ttl=0` is a silent no-op (caching already disabled)
+- Edge case: cache entries scoped by resolved token — switching accounts invalidates cache
+
 ## Summary
-- 124 tests total, all gates pass (pytest, ruff, ty)
+- 129 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
