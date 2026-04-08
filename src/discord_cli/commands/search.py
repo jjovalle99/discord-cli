@@ -1,9 +1,8 @@
 import asyncio
-import sys
 from typing import Any
 
 from discord_cli.client import DiscordClient
-from discord_cli.output import write_success
+from discord_cli.output import write_status, write_success
 
 MAX_SEARCH_RETRIES = 3
 SEARCH_INDEX_NOTE = "Search index may lag behind recent messages. Use --fallback-read with --channel to also search channel history."
@@ -19,7 +18,7 @@ async def _search(
 
         if response.status_code == 202:
             retry_after = max(float(response.json().get("retry_after", 1)), 0.1)
-            print(f"Index not ready. Retrying in {retry_after}s...", file=sys.stderr)
+            write_status(f"Index not ready. Retrying in {retry_after}s...")
             await asyncio.sleep(retry_after)
             continue
 

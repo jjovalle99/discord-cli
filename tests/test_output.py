@@ -22,3 +22,24 @@ def test_write_error_prints_json_to_stderr(capsys: pytest.CaptureFixture[str]) -
         "error": "not_found",
         "message": "Channel not found",
     }
+
+
+def test_write_status_prints_to_stderr(capsys: pytest.CaptureFixture[str]) -> None:
+    from discord_cli.output import set_quiet, write_status
+
+    set_quiet(False)
+    write_status("Connecting...")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "Connecting...\n"
+
+
+def test_write_status_suppressed_when_quiet(capsys: pytest.CaptureFixture[str]) -> None:
+    from discord_cli.output import set_quiet, write_status
+
+    set_quiet(True)
+    write_status("Connecting...")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    set_quiet(False)

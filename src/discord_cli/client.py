@@ -1,8 +1,9 @@
 import asyncio
-import sys
 from typing import Any
 
 import httpx
+
+from discord_cli.output import write_status
 
 BASE_URL = "https://discord.com/api/v10"
 _ALLOWED_HOSTS = ("cdn.discordapp.com", "media.discordapp.net")
@@ -55,7 +56,7 @@ class DiscordClient:
         retries = 0
         while response.status_code == 429 and retries < _MAX_RETRIES:
             retry_after = min(float(response.json().get("retry_after", 1)), _MAX_RETRY_DELAY)
-            print(f"[rate-limit] 429 on GET {path} — retrying in {retry_after}s", file=sys.stderr)
+            write_status(f"[rate-limit] 429 on GET {path} — retrying in {retry_after}s")
             await asyncio.sleep(retry_after)
             retries += 1
             response = await self._http.get(path, params=params)

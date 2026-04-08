@@ -1,5 +1,4 @@
 import platform
-import sys
 from pathlib import Path
 
 import httpx
@@ -11,7 +10,7 @@ from discord_cli.auth.keychain import get_macos_password
 from discord_cli.client import DiscordClient
 from discord_cli.config import DEFAULT_CONFIG_PATH, save_config
 from discord_cli.credential import store_token
-from discord_cli.output import write_success
+from discord_cli.output import set_quiet, write_status, write_success
 from discord_cli.validation import validate_token
 
 DISCORD_LEVELDB_PATHS = {
@@ -36,7 +35,9 @@ async def run_auth(
     config_path: Path = DEFAULT_CONFIG_PATH,
     is_macos: bool | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    quiet: bool = False,
 ) -> None:
+    set_quiet(quiet)
     os_name = platform.system()
     if is_macos is None:
         is_macos = os_name == "Darwin"
@@ -58,10 +59,9 @@ async def run_auth(
 
     if is_encrypted(raw_token):
         if is_macos:
-            print(
+            write_status(
                 "Accessing macOS Keychain for Discord token decryption "
-                "(system password prompt incoming)",
-                file=sys.stderr,
+                "(system password prompt incoming)"
             )
             password = get_macos_password(
                 MACOS_KEYCHAIN_SERVICE, MACOS_KEYCHAIN_ACCOUNT
@@ -84,12 +84,17 @@ async def run_auth(
 
     if store_token(token):
         save_config(username=username, config_path=config_path)
+        credential_storage = "keyring"
     else:
-        print(
-            "Warning: no system keyring available, storing token in plaintext config file",
-            file=sys.stderr,
+        write_status(
+            "Warning: no system keyring available, storing token in plaintext config file"
         )
         save_config(token=token, username=username, config_path=config_path)
+        credential_storage = "plaintext_config"
 
-    print(f"Authenticated as {username}", file=sys.stderr)
-    write_success({"id": user_info.get("id"), "username": username})
+    write_status(f"Authenticated as {username}")
+    write_success({
+        "id": user_info.get("id"),
+        "username": username,
+        "credential_storage": credential_storage,
+    })

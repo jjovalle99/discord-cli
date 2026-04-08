@@ -61,6 +61,60 @@ async def test_429_stderr_includes_path(capsys: pytest.CaptureFixture[str]) -> N
 
 
 @pytest.mark.asyncio
+async def test_429_stderr_suppressed_when_quiet(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from discord_cli.output import set_quiet
+
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(429, json={"retry_after": 0.01})
+        return httpx.Response(200, json={"ok": True})
+
+    transport = httpx.MockTransport(handler)
+    set_quiet(True)
+    try:
+        async with DiscordClient(token="t", transport=transport) as client:
+            await client.api_get("/channels/123/messages")
+        stderr = capsys.readouterr().err
+        assert stderr == ""
+    finally:
+        set_quiet(False)
+
+
+def test_quiet_flag_suppresses_429_via_run(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from discord_cli.cli import _run
+    from discord_cli.commands.list import list_servers
+
+    call_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(200, json={"id": "1", "username": "u"})
+        if call_count == 2:
+            return httpx.Response(429, json={"retry_after": 0.01})
+        return httpx.Response(200, json=[{"id": "1", "name": "S"}])
+
+    transport = httpx.MockTransport(handler)
+    _run(
+        lambda c: list_servers(c),
+        token="t",
+        transport=transport,
+        quiet=True,
+    )
+    stderr = capsys.readouterr().err
+    assert stderr == ""
+
+
+@pytest.mark.asyncio
 async def test_retries_up_to_max_on_repeated_429() -> None:
     call_count = 0
 

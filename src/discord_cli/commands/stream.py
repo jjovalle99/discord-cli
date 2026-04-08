@@ -1,10 +1,10 @@
 import asyncio
 import json
-import sys
 from collections.abc import AsyncIterator, Callable
 from typing import Any, cast
 
 from discord_cli.gateway import WebSocketLike, gateway_events
+from discord_cli.output import set_quiet, write_status
 
 _MAX_RECONNECTS = 5
 _MAX_BACKOFF = 30
@@ -19,7 +19,9 @@ async def stream_events(
     event_type: str | None = None,
     event_source: AsyncIterator[dict[str, Any]] | None = None,
     ws_connect: Callable[..., Any] | None = None,
+    quiet: bool = False,
 ) -> None:
+    set_quiet(quiet)
     async def _consume(source: AsyncIterator[dict[str, Any]]) -> None:
         async for event in source:
             if channel_id and event.get("channel_id") != channel_id:
@@ -34,9 +36,8 @@ async def stream_events(
         await _consume(event_source)
         return
 
-    print(
-        "[warning] WebSocket streaming increases detection risk. See SPEC.md.",
-        file=sys.stderr,
+    write_status(
+        "[warning] WebSocket streaming increases detection risk. See SPEC.md."
     )
 
     if ws_connect is None:
@@ -55,10 +56,10 @@ async def stream_events(
         if attempt + 1 >= _MAX_RECONNECTS:
             break
         delay = min(2**attempt, _MAX_BACKOFF)
-        print(
-            f"[reconnect] Connection lost — retrying in {delay}s ({attempt + 1}/{_MAX_RECONNECTS})",
-            file=sys.stderr,
+        write_status(
+            f"[reconnect] Connection lost — retrying in {delay}s ({attempt + 1}/{_MAX_RECONNECTS})"
         )
         await asyncio.sleep(delay)
 
-    print("[error] Max reconnection attempts reached", file=sys.stderr)
+    msg = "Max reconnection attempts reached"
+    raise ConnectionError(msg)

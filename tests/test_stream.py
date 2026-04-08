@@ -101,7 +101,10 @@ async def test_stream_reconnects_on_failure(capsys: pytest.CaptureFixture[str]) 
         async def __anext__(self) -> str:
             raise StopAsyncIteration
 
-    with patch("asyncio.sleep", new_callable=AsyncMock):
+    with (
+        patch("asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(ConnectionError, match="Max reconnection"),
+    ):
         await stream_events(
             token="tok",
             gateway_url="wss://gateway.discord.gg",
@@ -112,3 +115,20 @@ async def test_stream_reconnects_on_failure(capsys: pytest.CaptureFixture[str]) 
     assert call_count >= 2
     stderr = capsys.readouterr().err
     assert "[reconnect]" in stderr
+
+
+async def test_stream_quiet_suppresses_warning(capsys: pytest.CaptureFixture[str]) -> None:
+    events = [
+        {"event": "MESSAGE_CREATE", "channel_id": "111", "content": "msg"},
+    ]
+
+    await stream_events(
+        token="tok",
+        gateway_url="wss://gateway.discord.gg",
+        channel_id="111",
+        event_source=_make_source(events),
+        quiet=True,
+    )
+
+    stderr = capsys.readouterr().err
+    assert stderr == ""

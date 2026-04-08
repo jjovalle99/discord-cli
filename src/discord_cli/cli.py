@@ -33,6 +33,8 @@ from discord_cli.config import DEFAULT_CONFIG_PATH
 from discord_cli.tokens import resolve_token
 from discord_cli.validation import validate_token
 
+QuietFlag = Annotated[bool, cyclopts.Parameter(name=["--quiet", "-q"])]
+
 app = cyclopts.App(name="discord-cli", help="Read-only Discord CLI for coding agents.")
 search_app = cyclopts.App(name="search", help="Search Discord data.")
 read_app = cyclopts.App(name="read", help="Read Discord data.")
@@ -69,19 +71,25 @@ def _run_with_error_handling(fn: Callable[[], object]) -> None:
         _fail("auth_error", f"Keychain access failed: {e}")
     except TimeoutError as e:
         _fail("timeout", str(e))
+    except ConnectionError as e:
+        _fail("connection_error", str(e))
 
 
 @app.command
-def auth() -> None:
+def auth(
+    *,
+    quiet: QuietFlag = False,
+) -> None:
     """Extract token from Discord desktop app and save to config."""
     from discord_cli.auth.command import run_auth
 
-    _run_with_error_handling(lambda: asyncio.run(run_auth()))
+    _run_with_error_handling(lambda: asyncio.run(run_auth(quiet=quiet)))
 
 
 @app.command
 def whoami(
     *,
+    quiet: QuietFlag = False,
     token: str | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> None:
@@ -125,7 +133,11 @@ def _run(
     cache_ttl: int = 0,
     no_cache: bool = False,
     rate_limit_info: bool = False,
+    quiet: bool = False,
 ) -> None:
+    from discord_cli.output import set_quiet
+
+    set_quiet(quiet)
     resolved = resolve_token(flag_token=token, config_path=DEFAULT_CONFIG_PATH)
     captured_client: DiscordClient | None = None
 
@@ -180,6 +192,7 @@ def search_messages_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Search messages in a server."""
@@ -201,6 +214,7 @@ def search_messages_cmd(
         cache_ttl=cache_ttl,
         no_cache=no_cache,
         rate_limit_info=rate_limit_info,
+        quiet=quiet,
     )
 
 
@@ -214,6 +228,7 @@ def search_dms_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Search messages in a DM channel."""
@@ -229,6 +244,7 @@ def search_dms_cmd(
         cache_ttl=cache_ttl,
         no_cache=no_cache,
         rate_limit_info=rate_limit_info,
+        quiet=quiet,
     )
 
 
@@ -239,10 +255,11 @@ def list_servers_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """List all servers the user is in."""
-    _run(lambda c: list_servers(c, limit=limit), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: list_servers(c, limit=limit), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @list_app.command(name="channels")
@@ -252,10 +269,11 @@ def list_channels_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """List all channels in a server."""
-    _run(lambda c: list_channels(c, guild_id=guild_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: list_channels(c, guild_id=guild_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @list_app.command(name="dms")
@@ -264,10 +282,11 @@ def list_dms_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """List open DM conversations."""
-    _run(lambda c: list_dms(c), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: list_dms(c), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @list_app.command(name="members")
@@ -279,10 +298,11 @@ def list_members_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """List members in a server."""
-    _run(lambda c: list_members(c, guild_id=guild_id, limit=limit, role=role), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: list_members(c, guild_id=guild_id, limit=limit, role=role), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @list_app.command(name="threads")
@@ -292,10 +312,11 @@ def list_threads_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """List threads in a channel (archived + active from recent messages)."""
-    _run(lambda c: list_threads(c, channel_id=channel_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: list_threads(c, channel_id=channel_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @read_app.command(name="channel")
@@ -319,6 +340,7 @@ def read_channel_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Fetch message history of a channel or thread."""
@@ -345,6 +367,7 @@ def read_channel_cmd(
         cache_ttl=cache_ttl,
         no_cache=no_cache,
         rate_limit_info=rate_limit_info,
+        quiet=quiet,
     )
 
 
@@ -369,6 +392,7 @@ def read_thread_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Fetch messages in a thread (alias for read channel)."""
@@ -395,6 +419,7 @@ def read_thread_cmd(
         cache_ttl=cache_ttl,
         no_cache=no_cache,
         rate_limit_info=rate_limit_info,
+        quiet=quiet,
     )
 
 
@@ -409,6 +434,7 @@ def read_message_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Fetch a single message."""
@@ -425,6 +451,7 @@ def read_message_cmd(
         cache_ttl=cache_ttl,
         no_cache=no_cache,
         rate_limit_info=rate_limit_info,
+        quiet=quiet,
     )
 
 
@@ -435,10 +462,11 @@ def read_server_info_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Fetch server metadata."""
-    _run(lambda c: read_server_info(c, guild_id=guild_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: read_server_info(c, guild_id=guild_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @read_app.command(name="channel-info")
@@ -448,10 +476,11 @@ def read_channel_info_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Fetch channel metadata."""
-    _run(lambda c: read_channel_info(c, channel_id=channel_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: read_channel_info(c, channel_id=channel_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @read_app.command(name="user")
@@ -461,10 +490,11 @@ def read_user_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Fetch a user's profile."""
-    _run(lambda c: read_user(c, user_id=user_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: read_user(c, user_id=user_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @read_app.command(name="member")
@@ -475,10 +505,11 @@ def read_member_cmd(
     rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Fetch a member's server-specific profile."""
-    _run(lambda c: read_member(c, guild_id=guild_id, user_id=user_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
+    _run(lambda c: read_member(c, guild_id=guild_id, user_id=user_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info, quiet=quiet)
 
 
 @read_app.command(name="file")
@@ -489,6 +520,7 @@ def read_file_cmd(
     message: str | None = None,
     filename: str | None = None,
     output: str | None = None,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Download an attachment by URL or by message reference."""
@@ -505,7 +537,7 @@ def read_file_cmd(
 
             sys.stdout.buffer.write(data)
 
-    _run(_download, token)
+    _run(_download, token, quiet=quiet)
 
 
 def _run_stream(
@@ -532,6 +564,7 @@ def stream_channel_cmd(
     channel_id: str,
     *,
     event: str | None = None,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Stream real-time events for a channel."""
@@ -539,7 +572,7 @@ def stream_channel_cmd(
 
     _run_stream(
         lambda tok, url: stream_events(
-            token=tok, gateway_url=url, channel_id=channel_id, event_type=event,
+            token=tok, gateway_url=url, channel_id=channel_id, event_type=event, quiet=quiet,
         ),
         token,
     )
@@ -550,6 +583,7 @@ def stream_server_cmd(
     guild_id: str,
     *,
     event: str | None = None,
+    quiet: QuietFlag = False,
     token: str | None = None,
 ) -> None:
     """Stream real-time events for all channels in a server."""
@@ -557,7 +591,7 @@ def stream_server_cmd(
 
     _run_stream(
         lambda tok, url: stream_events(
-            token=tok, gateway_url=url, guild_id=guild_id, event_type=event,
+            token=tok, gateway_url=url, guild_id=guild_id, event_type=event, quiet=quiet,
         ),
         token,
     )
