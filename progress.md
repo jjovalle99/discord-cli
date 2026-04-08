@@ -267,7 +267,18 @@
 - Edge case: no session resume (Opcode 6) on reconnect — missed events during reconnection are lost
 - Edge case: `intents` set to GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT — user tokens may receive all events regardless
 
+## Issue #24: --quiet flag to suppress stderr messages — DONE
+- `--quiet` / `-q` flag on all commands (list, read, search, stream, auth, whoami)
+- `write_status()` in `output.py` replaces all informational `print(..., file=sys.stderr)` calls
+- Module-level `set_quiet()` controls suppression — set once at CLI entry points (`_run`, `run_auth`, `stream_events`)
+- `write_error()` (structured JSON errors) is NOT suppressed by `--quiet`
+- Auth command now includes `credential_storage: "keyring" | "plaintext_config"` in success JSON (adversarial review finding: plaintext fallback must be visible even in quiet mode)
+- Stream reconnect exhaustion now raises `ConnectionError` → CLI exits non-zero (adversarial review finding: silent success on failure was a bug)
+- `QuietFlag` type alias deduplicates the 18-instance `Annotated[bool, cyclopts.Parameter(...)]` annotation
+- 6 new tests (write_status, quiet suppression, client rate-limit, _run integration, auth quiet, stream quiet)
+- Edge case: `--quiet` suppresses the plaintext credential fallback warning, but `credential_storage` field in JSON output ensures agents can still detect and reject plaintext storage
+
 ## Summary
-- 161 tests total, all gates pass (pytest, ruff, ty)
+- 167 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
