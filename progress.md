@@ -161,7 +161,20 @@
 - 6 new tests (text formatting, text output, jsonl output, single message text, newline escaping, text+max_bytes truncation)
 - Edge case: multiline Discord messages (code blocks, etc.) collapse to single output line in text mode — content preserved via escaping
 
+## Issue #15: auto-refresh expired attachment URLs — DONE
+- `--channel <id> --message <id> --filename <name>` flags on `read file` as alternative to `--url`
+- Fetches message via API, finds attachment by filename, downloads fresh signed URL
+- Clean JSON error (`url_expired`) on 403 for attachment URLs, suggesting `--channel --message --filename`
+- Clean JSON error (`download_failed`) for non-attachment CDN 403s and other HTTP errors
+- Clean JSON error (`attachment_not_found`) when filename doesn't match any attachment in the message
+- Clean JSON error (`missing_flags`) when neither `--url` nor the full `--channel/--message/--filename` trio provided
+- URL-decoded filenames from CDN paths (handles spaces, Unicode in attachment names)
+- Reuses `_ALLOWED_HOSTS` from `client.py` (no duplicate host set)
+- 7 new tests (URL parsing, percent-encoding, expired URL, message reference, attachment not found, non-attachment 403)
+- Edge case: Discord CDN attachment URLs contain `attachment_id` not `message_id` — auto-refresh from URL alone is impossible, hence the `--channel --message --filename` approach
+- Edge case: `GET /channels/{id}/messages/{id}` returns 403 on some servers for user tokens (Discord API limitation, pre-existing)
+
 ## Summary
-- 110 tests total, all gates pass (pytest, ruff, ty)
+- 117 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts (Discord API limitation)
