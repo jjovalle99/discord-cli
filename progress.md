@@ -219,7 +219,19 @@
 - Edge case: when keyring store fails and then succeeds again later, config file token takes priority (prevents stale keyring from shadowing fresh config token)
 - Edge case: systems without a keyring backend (headless Linux, CI) degrade to plaintext with a warning
 
+## Issue #20: rate limit visibility and backoff feedback — DONE
+- Structured stderr message on 429: `[rate-limit] 429 on GET <path> — retrying in <N>s` (replaces generic "Rate limited" message)
+- Retry loop with max 5 retries replacing single retry, delay capped at 60s per attempt
+- `X-RateLimit-Remaining` (min across all requests) and `X-RateLimit-Reset-After` (max across all requests) tracked on `DiscordClient`
+- `--rate-limit-info` flag on all JSON-output commands wraps output as `{"data": <original>, "_rate_limit": {retries, remaining, reset_after}}`
+- Non-JSON formats (text/jsonl) pass through stdout unchanged; `_rate_limit` emitted to stderr as JSON
+- Cache bypassed when `--rate-limit-info` is set (prevents stale telemetry from cache hits)
+- `read file` excluded (binary output incompatible with stdout capture)
+- 7 new tests (stderr format, repeated 429 retry, max retry exhaustion, header tracking, JSON wrapping, non-JSON passthrough, min-remaining aggregation)
+- Edge case: multi-route commands (list_threads, list_members) report min remaining across all subrequests — worst-case view for agent throttling decisions
+- Edge case: `--rate-limit-info --cache-ttl N` silently skips caching rather than emitting stale rate limit data
+
 ## Summary
-- 137 tests total, all gates pass (pytest, ruff, ty)
+- 144 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
