@@ -134,3 +134,166 @@ async def test_read_member_emits_member(capsys: pytest.CaptureFixture[str]) -> N
         await read_member(client, guild_id="111", user_id="333")
 
     assert json.loads(capsys.readouterr().out)["nick"] == "Bobby"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_compact_strips_null_fields(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "content": "hello",
+            "timestamp": "2024-01-15T10:00:00+00:00",
+            "edited_timestamp": None,
+            "type": 0,
+            "pinned": False,
+            "thread": None,
+            "referenced_message": None,
+            "author": {"id": "1", "username": "alice", "global_name": "Alice"},
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", compact=True)
+
+    output = json.loads(capsys.readouterr().out)
+    msg = output[0]
+    assert "edited_timestamp" not in msg
+    assert "thread" not in msg
+    assert "referenced_message" in msg
+    assert msg["referenced_message"] is None
+    assert msg["content"] == "hello"
+    assert msg["pinned"] is False
+    assert msg["type"] == 0
+
+
+@pytest.mark.asyncio
+async def test_read_channel_compact_reduces_author(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "content": "hello",
+            "author": {
+                "id": "1",
+                "username": "alice",
+                "global_name": "Alice",
+                "avatar": "abc123",
+                "discriminator": "0",
+                "public_flags": 0,
+                "banner": None,
+                "accent_color": None,
+                "clan": None,
+            },
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", compact=True)
+
+    output = json.loads(capsys.readouterr().out)
+    author = output[0]["author"]
+    assert author == {"id": "1", "username": "alice", "global_name": "Alice"}
+
+
+@pytest.mark.asyncio
+async def test_read_message_compact(capsys: pytest.CaptureFixture[str]) -> None:
+    from discord_cli.commands.read import read_message
+
+    msg = {
+        "id": "100",
+        "content": "hi",
+        "edited_timestamp": None,
+        "author": {
+            "id": "1",
+            "username": "alice",
+            "global_name": "Alice",
+            "avatar": "abc",
+            "banner": None,
+        },
+    }
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=msg))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_message(client, channel_id="999", message_id="100", compact=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert "edited_timestamp" not in output
+    assert output["author"] == {"id": "1", "username": "alice", "global_name": "Alice"}
+
+
+@pytest.mark.asyncio
+async def test_compact_preserves_bot_flag_in_author(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "content": "beep",
+            "author": {
+                "id": "1",
+                "username": "bot-user",
+                "global_name": None,
+                "bot": True,
+                "avatar": "abc",
+                "discriminator": "0",
+            },
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", compact=True)
+
+    output = json.loads(capsys.readouterr().out)
+    author = output[0]["author"]
+    assert author["bot"] is True
+    assert "global_name" not in author
+    assert "avatar" not in author
+    assert "discriminator" not in author
+
+
+@pytest.mark.asyncio
+async def test_compact_does_not_synthesize_absent_global_name(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "content": "hi",
+            "author": {"id": "1", "username": "alice"},
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", compact=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert "global_name" not in output[0]["author"]
+
+
+@pytest.mark.asyncio
+async def test_compact_preserves_referenced_message_null(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "content": "replying to deleted",
+            "referenced_message": None,
+            "author": {"id": "1", "username": "alice"},
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", compact=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert "referenced_message" in output[0]
+    assert output[0]["referenced_message"] is None

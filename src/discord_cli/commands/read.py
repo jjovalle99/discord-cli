@@ -4,8 +4,29 @@ from discord_cli.client import DiscordClient
 from discord_cli.output import write_success
 
 
+_AUTHOR_KEEP_FIELDS = ("id", "username", "global_name")
+_AUTHOR_PROVENANCE_FIELDS = ("bot", "system")
+# Discord uses null vs absent to distinguish "reply to deleted message" from "not a reply"
+_PRESERVE_WHEN_NULL = frozenset({"referenced_message"})
+
+
+def _compact_author(author: dict[str, Any]) -> dict[str, Any]:
+    result = {k: author[k] for k in _AUTHOR_KEEP_FIELDS if author.get(k) is not None}
+    for k in _AUTHOR_PROVENANCE_FIELDS:
+        if author.get(k):
+            result[k] = author[k]
+    return result
+
+
+def _compact_message(msg: dict[str, Any]) -> dict[str, Any]:
+    result = {k: v for k, v in msg.items() if v is not None or k in _PRESERVE_WHEN_NULL}
+    if "author" in result and isinstance(result["author"], dict):
+        result["author"] = _compact_author(result["author"])
+    return result
+
+
 async def read_channel(
-    client: DiscordClient, *, channel_id: str, limit: int = 50
+    client: DiscordClient, *, channel_id: str, limit: int = 50, compact: bool = False
 ) -> None:
     all_messages: list[dict[str, Any]] = []
     params: dict[str, str] = {"limit": str(min(limit, 100))}
@@ -22,13 +43,22 @@ async def read_channel(
         params["before"] = batch[-1]["id"]
         params["limit"] = str(min(limit - len(all_messages), 100))
 
-    write_success(all_messages[:limit])
+    result = all_messages[:limit]
+    if compact:
+        result = [_compact_message(msg) for msg in result]
+    write_success(result)
 
 
 async def read_message(
-    client: DiscordClient, *, channel_id: str, message_id: str
+    client: DiscordClient,
+    *,
+    channel_id: str,
+    message_id: str,
+    compact: bool = False,
 ) -> None:
     msg = await client.api_get(f"/channels/{channel_id}/messages/{message_id}")
+    if compact:
+        msg = _compact_message(msg)
     write_success(msg)
 
 

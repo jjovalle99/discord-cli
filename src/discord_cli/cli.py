@@ -177,10 +177,14 @@ def read_channel_cmd(
     channel_id: str,
     *,
     limit: int = 50,
+    compact: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch message history of a channel or thread."""
-    _run(lambda c: read_channel(c, channel_id=channel_id, limit=limit), token)
+    _run(
+        lambda c: read_channel(c, channel_id=channel_id, limit=limit, compact=compact),
+        token,
+    )
 
 
 @read_app.command(name="thread")
@@ -188,10 +192,14 @@ def read_thread_cmd(
     thread_id: str,
     *,
     limit: int = 50,
+    compact: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch messages in a thread (alias for read channel)."""
-    _run(lambda c: read_channel(c, channel_id=thread_id, limit=limit), token)
+    _run(
+        lambda c: read_channel(c, channel_id=thread_id, limit=limit, compact=compact),
+        token,
+    )
 
 
 @read_app.command(name="message")
@@ -199,10 +207,16 @@ def read_message_cmd(
     channel_id: str,
     message_id: str,
     *,
+    compact: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch a single message."""
-    _run(lambda c: read_message(c, channel_id=channel_id, message_id=message_id), token)
+    _run(
+        lambda c: read_message(
+            c, channel_id=channel_id, message_id=message_id, compact=compact
+        ),
+        token,
+    )
 
 
 @read_app.command(name="server-info")
