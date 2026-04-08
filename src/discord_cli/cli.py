@@ -195,6 +195,7 @@ def read_channel_cmd(
     pinned: bool = False,
     before: str | None = None,
     after: str | None = None,
+    since: str | None = None,
     chronological: bool = False,
     token: str | None = None,
 ) -> None:
@@ -213,6 +214,7 @@ def read_channel_cmd(
             pinned=pinned,
             before=before,
             after=after,
+            since=since,
             chronological=chronological,
         ),
         token,
@@ -233,6 +235,7 @@ def read_thread_cmd(
     pinned: bool = False,
     before: str | None = None,
     after: str | None = None,
+    since: str | None = None,
     chronological: bool = False,
     token: str | None = None,
 ) -> None:
@@ -251,6 +254,7 @@ def read_thread_cmd(
             pinned=pinned,
             before=before,
             after=after,
+            since=since,
             chronological=chronological,
         ),
         token,

@@ -8,6 +8,8 @@ from discord_cli.commands.read import (
     read_channel,
 )
 
+_SNOWFLAKE_2024_01_15T10 = str((1705312800000 - 1420070400000) << 22)
+
 
 @pytest.mark.asyncio
 async def test_read_channel_emits_messages(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1218,6 +1220,116 @@ async def test_read_channel_chronological_after_returns_contiguous_messages(
     output = json.loads(capsys.readouterr().out)
     ids = [int(m["id"]) for m in output]
     assert ids == list(range(101, 251))
+
+
+@pytest.mark.asyncio
+async def test_read_channel_since_converts_timestamp_to_snowflake(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_params: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "101",
+                    "author": {"id": "1", "username": "a"},
+                    "content": "after the timestamp",
+                }
+            ],
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", since="2024-01-15T10:00:00")
+
+    expected_snowflake = _SNOWFLAKE_2024_01_15T10
+    assert captured_params[0]["after"] == expected_snowflake
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 1
+
+
+@pytest.mark.asyncio
+async def test_read_channel_since_and_after_mutually_exclusive(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=[]))
+    async with DiscordClient(token="t", transport=transport) as client:
+        with pytest.raises(SystemExit, match="1"):
+            await read_channel(
+                client, channel_id="999", since="2024-01-15T10:00:00", after="100"
+            )
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "incompatible_flags"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_since_invalid_timestamp_errors(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=[]))
+    async with DiscordClient(token="t", transport=transport) as client:
+        with pytest.raises(SystemExit, match="1"):
+            await read_channel(client, channel_id="999", since="not-a-timestamp")
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "invalid_since"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_since_timezone_aware_timestamp(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_params: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.append(dict(request.url.params))
+        return httpx.Response(200, json=[])
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", since="2024-01-15T05:00:00-05:00")
+
+    expected_snowflake = _SNOWFLAKE_2024_01_15T10
+    assert captured_params[0]["after"] == expected_snowflake
+
+
+@pytest.mark.asyncio
+async def test_read_channel_since_returns_oldest_slice_for_incremental_reads(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    since_snowflake = _SNOWFLAKE_2024_01_15T10
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        after = params.get("after", "")
+        if after == since_snowflake or after == "110":
+            start = 101 if after == since_snowflake else 111
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(i),
+                        "author": {"id": "1", "username": "a"},
+                        "content": f"msg{i}",
+                    }
+                    for i in range(start, start + 10)
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(
+            client, channel_id="999", limit=5, since="2024-01-15T10:00:00"
+        )
+
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 5
+    assert [m["id"] for m in output] == ["101", "102", "103", "104", "105"]
 
 
 @pytest.mark.asyncio

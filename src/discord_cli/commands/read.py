@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from discord_cli.client import DiscordClient
@@ -156,6 +157,17 @@ def _resolve_channels(
     return msg
 
 
+_DISCORD_EPOCH_MS = 1420070400000
+
+
+def _since_to_snowflake(since: str) -> str:
+    dt = datetime.fromisoformat(since)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    unix_ms = int(dt.timestamp() * 1000)
+    return str((unix_ms - _DISCORD_EPOCH_MS) << 22)
+
+
 async def read_channel(
     client: DiscordClient,
     *,
@@ -170,8 +182,21 @@ async def read_channel(
     pinned: bool = False,
     before: str | None = None,
     after: str | None = None,
+    since: str | None = None,
     chronological: bool = False,
 ) -> None:
+    if since and after:
+        write_error(
+            "incompatible_flags",
+            "--since and --after are mutually exclusive",
+        )
+        raise SystemExit(1)
+    if since:
+        try:
+            after = _since_to_snowflake(since)
+        except ValueError:
+            write_error("invalid_since", f"Invalid ISO 8601 timestamp: {since}")
+            raise SystemExit(1)
     if before and after:
         write_error(
             "incompatible_flags",

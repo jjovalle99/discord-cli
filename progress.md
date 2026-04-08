@@ -131,7 +131,16 @@
 - 3 new tests (basic reversal, after-path contiguity, max-bytes retention semantics)
 - Edge case: `--after` responses may arrive in any order; sort ensures contiguous selection regardless
 
+## Issue #12: --since timestamp filter for incremental reads — DONE
+- `--since <ISO8601>` on `read channel` and `read thread`
+- Converts ISO 8601 timestamp to Discord snowflake and passes as `after` query parameter
+- Naive timestamps (no timezone) treated as UTC; timezone-aware timestamps converted correctly
+- Incompatible with `--after` (both set the same cursor); inherits existing `--before`/`--pinned` incompatibilities via `after`
+- Invalid timestamps produce `invalid_since` error (prevents misleading "Token decryption failed" from generic `ValueError` handler)
+- 5 new tests (snowflake conversion, mutual exclusivity, invalid timestamp, timezone-aware, incremental-read slice semantics)
+- Edge case: when more messages exist after the timestamp than `--limit`, returns the oldest slice (nearest to cutoff) — correct for incremental polling workflows
+
 ## Summary
-- 95 tests total, all gates pass (pytest, ruff, ty)
+- 100 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts (Discord API limitation)
