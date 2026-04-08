@@ -251,7 +251,23 @@
 - 6 new tests (embed text extraction, empty embed skip, read_message, text format, malformed embeds, full embed parts)
 - Edge case: `embed_text` adds to JSON payload size alongside `embeds` — users combining `--flatten-embeds` with `--max-bytes` may see fewer messages due to duplication (by design per issue spec: "Keep the original `embeds` array")
 
+## Issue #23: real-time message streaming via WebSocket gateway — DONE
+- `stream channel <channel_id>` and `stream server <guild_id>` commands
+- Connects to Discord WebSocket gateway (`wss://gateway.discord.gg`) using user token
+- Handles Hello → Identify → heartbeat → dispatch protocol lifecycle
+- Streams dispatch events as JSONL to stdout with `event` field for event name (avoids collision with payload's `type` field)
+- `--event` flag filters by event type (e.g., `MESSAGE_CREATE`)
+- Channel filter matches `channel_id`, server filter matches `guild_id`
+- Reconnect with exponential backoff (up to 5 attempts) on `OSError`/`WebSocketException`
+- `KeyboardInterrupt` exits cleanly with code 130 (standard SIGINT exit)
+- Detection risk warning printed to stderr on stream start
+- Skips `validate_token` round-trip — bare `DiscordClient` used only for `GET /gateway` URL fetch
+- Non-dict dispatch payloads silently skipped (some Discord events send lists as `d`)
+- 8 new tests (gateway URL fetch, dispatch yield + identify, heartbeat, payload type collision, channel filter, guild filter, event filter, reconnect)
+- Edge case: no session resume (Opcode 6) on reconnect — missed events during reconnection are lost
+- Edge case: `intents` set to GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT — user tokens may receive all events regardless
+
 ## Summary
-- 153 tests total, all gates pass (pytest, ruff, ty)
+- 161 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
