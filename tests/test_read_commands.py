@@ -5,7 +5,9 @@ import pytest
 
 from discord_cli.client import DiscordClient
 from discord_cli.commands.read import (
+    _parse_attachment_url,
     read_channel,
+    read_file,
 )
 
 _SNOWFLAKE_2024_01_15T10 = str((1705312800000 - 1420070400000) << 22)
@@ -1515,3 +1517,122 @@ async def test_read_channel_format_text_with_max_bytes_truncates_text_lines(
     assert len(lines) > 0
     for line in lines:
         assert line.startswith("[2026-04-01 21:41] alice: message number")
+
+
+def test_parse_attachment_url_extracts_ids() -> None:
+    url = "https://cdn.discordapp.com/attachments/111/222/photo.png?ex=abc&is=def&hm=ghi"
+    result = _parse_attachment_url(url)
+    assert result == ("111", "222", "photo.png")
+
+
+def test_parse_attachment_url_returns_none_for_non_attachment() -> None:
+    assert _parse_attachment_url("https://cdn.discordapp.com/emojis/123/emoji.png") is None
+    assert _parse_attachment_url("https://example.com/attachments/1/2/f.png") is None
+
+
+def test_parse_attachment_url_decodes_percent_encoded_filename() -> None:
+    url = "https://cdn.discordapp.com/attachments/111/222/my%20file%20%C3%A9.png"
+    result = _parse_attachment_url(url)
+    assert result is not None
+    assert result[2] == "my file é.png"
+
+
+@pytest.mark.asyncio
+async def test_read_file_expired_attachment_url(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    expired_url = "https://cdn.discordapp.com/attachments/111/222/photo.png?ex=expired"
+
+    def cdn_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403)
+
+    cdn_transport = httpx.MockTransport(cdn_handler)
+    api_transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, json={"id": "1", "username": "test"})
+    )
+    async with DiscordClient(
+        token="t", transport=api_transport, cdn_transport=cdn_transport
+    ) as client:
+        with pytest.raises(SystemExit):
+            await read_file(client, url=expired_url)
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "url_expired"
+    assert "--channel" in err["message"]
+
+
+@pytest.mark.asyncio
+async def test_read_file_by_message_reference() -> None:
+    fresh_url = "https://cdn.discordapp.com/attachments/111/222/doc.pdf?ex=valid"
+    msg_response = {
+        "id": "222",
+        "content": "",
+        "attachments": [{"filename": "doc.pdf", "url": fresh_url, "size": 100}],
+    }
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        if "/channels/111/messages/222" in str(request.url):
+            return httpx.Response(200, json=msg_response)
+        return httpx.Response(200, json={"id": "1", "username": "test"})
+
+    def cdn_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"pdf-bytes")
+
+    api_transport = httpx.MockTransport(api_handler)
+    cdn_transport = httpx.MockTransport(cdn_handler)
+    async with DiscordClient(
+        token="t", transport=api_transport, cdn_transport=cdn_transport
+    ) as client:
+        result = await read_file(
+            client, channel="111", message="222", filename="doc.pdf"
+        )
+
+    assert result == b"pdf-bytes"
+
+
+@pytest.mark.asyncio
+async def test_read_file_attachment_not_found(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    msg_response = {
+        "id": "222",
+        "content": "",
+        "attachments": [{"filename": "other.png", "url": "https://cdn.discordapp.com/x", "size": 1}],
+    }
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        if "/channels/111/messages/222" in str(request.url):
+            return httpx.Response(200, json=msg_response)
+        return httpx.Response(200, json={"id": "1", "username": "test"})
+
+    api_transport = httpx.MockTransport(api_handler)
+    async with DiscordClient(token="t", transport=api_transport) as client:
+        with pytest.raises(SystemExit):
+            await read_file(client, channel="111", message="222", filename="missing.pdf")
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "attachment_not_found"
+    assert "missing.pdf" in err["message"]
+
+
+@pytest.mark.asyncio
+async def test_read_file_403_non_attachment_url(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    emoji_url = "https://cdn.discordapp.com/emojis/123456/emoji.png"
+
+    def cdn_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403)
+
+    cdn_transport = httpx.MockTransport(cdn_handler)
+    api_transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, json={"id": "1", "username": "test"})
+    )
+    async with DiscordClient(
+        token="t", transport=api_transport, cdn_transport=cdn_transport
+    ) as client:
+        with pytest.raises(SystemExit):
+            await read_file(client, url=emoji_url)
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "download_failed"

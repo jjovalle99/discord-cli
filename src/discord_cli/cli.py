@@ -16,6 +16,7 @@ from discord_cli.commands.read import (
     Format,
     read_channel,
     read_channel_info,
+    read_file,
     read_member,
     read_message,
     read_server_info,
@@ -349,15 +350,20 @@ def read_member_cmd(
 @read_app.command(name="file")
 def read_file_cmd(
     *,
-    url: str,
+    url: str | None = None,
+    channel: str | None = None,
+    message: str | None = None,
+    filename: str | None = None,
     output: str | None = None,
     token: str | None = None,
 ) -> None:
-    """Download an attachment by URL."""
+    """Download an attachment by URL or by message reference."""
     from pathlib import Path as P
 
     async def _download(c: DiscordClient) -> None:
-        data = await c.fetch_url_bytes(url)
+        data = await read_file(
+            c, url=url, channel=channel, message=message, filename=filename
+        )
         if output:
             P(output).write_bytes(data)
         else:

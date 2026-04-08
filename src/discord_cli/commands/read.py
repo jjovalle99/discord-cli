@@ -3,8 +3,22 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from discord_cli.client import DiscordClient
+from urllib.parse import unquote, urlparse
+
+import httpx
+
+from discord_cli.client import _ALLOWED_HOSTS, DiscordClient
 from discord_cli.output import write_error, write_success
+
+
+def _parse_attachment_url(url: str) -> tuple[str, str, str] | None:
+    parsed = urlparse(url)
+    if (parsed.hostname or "") not in _ALLOWED_HOSTS:
+        return None
+    segments = [s for s in (parsed.path or "").split("/") if s]
+    if len(segments) < 4 or segments[0] != "attachments":
+        return None
+    return segments[1], segments[2], unquote(segments[3])
 
 type Format = Literal["json", "jsonl", "text"]
 
@@ -380,3 +394,60 @@ async def read_user(client: DiscordClient, *, user_id: str) -> None:
 async def read_member(client: DiscordClient, *, guild_id: str, user_id: str) -> None:
     member = await client.api_get(f"/guilds/{guild_id}/members/{user_id}")
     write_success(member)
+
+
+def _find_attachment_by_filename(
+    attachments: list[dict[str, Any]], filename: str
+) -> str | None:
+    for att in attachments:
+        if att.get("filename") == filename:
+            return att.get("url")  # type: ignore[no-any-return]
+    return None
+
+
+async def _fetch_attachment_from_message(
+    client: DiscordClient, channel_id: str, message_id: str, filename: str
+) -> bytes:
+    msg = await client.api_get(f"/channels/{channel_id}/messages/{message_id}")
+    fresh_url = _find_attachment_by_filename(msg.get("attachments", []), filename)
+    if fresh_url is None:
+        write_error(
+            "attachment_not_found",
+            f"No attachment named '{filename}' in message {message_id}",
+        )
+        raise SystemExit(1)
+    return await client.fetch_url_bytes(fresh_url)
+
+
+async def read_file(
+    client: DiscordClient,
+    *,
+    url: str | None = None,
+    channel: str | None = None,
+    message: str | None = None,
+    filename: str | None = None,
+) -> bytes:
+    if channel and message and filename:
+        return await _fetch_attachment_from_message(client, channel, message, filename)
+
+    if url is None:
+        write_error(
+            "missing_flags",
+            "Provide --url or all of --channel, --message, --filename",
+        )
+        raise SystemExit(1)
+
+    try:
+        return await client.fetch_url_bytes(url)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403 and _parse_attachment_url(url) is not None:
+            write_error(
+                "url_expired",
+                "Attachment URL expired. Re-fetch with: --channel <id> --message <id> --filename <name>",
+            )
+        else:
+            write_error(
+                "download_failed",
+                f"HTTP {exc.response.status_code} fetching {url}",
+            )
+        raise SystemExit(1)
