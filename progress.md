@@ -121,7 +121,17 @@
 - 3 new tests (basic resolution + unknown ID preservation, nick-prefix format, code-span preservation)
 - Edge case: pre-existing `--resolve-channels` does not protect code spans — separate concern, not addressed here
 
+## Issue #11: --chronological flag for oldest-first message order — DONE
+- `--chronological` on `read channel` and `read thread`
+- Reverses output from newest-first (Discord default) to oldest-first for natural conversation reading
+- Uses O(n) `reverse()` for the default pagination path (messages already descending)
+- `--after` pagination path sorts before slicing for contiguous message selection
+- `--max-bytes` truncation operates before display reordering (retains newest messages, then reorders for display)
+- Extracted `_message_sort_key` helper to deduplicate ID-based sort key across 4 call sites
+- 3 new tests (basic reversal, after-path contiguity, max-bytes retention semantics)
+- Edge case: `--after` responses may arrive in any order; sort ensures contiguous selection regardless
+
 ## Summary
-- 92 tests total, all gates pass (pytest, ruff, ty)
+- 95 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts (Discord API limitation)

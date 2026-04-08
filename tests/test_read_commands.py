@@ -1153,3 +1153,97 @@ async def test_read_channel_resolve_mentions_preserves_code_spans(
         output[0]["content"]
         == "Hey @alice, use `<@200>` to mention and ```<@200>``` in blocks"
     )
+
+
+@pytest.mark.asyncio
+async def test_read_channel_chronological_reverses_to_oldest_first(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {"id": "3", "author": {"id": "1", "username": "alice"}, "content": "newest"},
+        {"id": "2", "author": {"id": "1", "username": "alice"}, "content": "middle"},
+        {"id": "1", "author": {"id": "1", "username": "alice"}, "content": "oldest"},
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", chronological=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert [m["id"] for m in output] == ["1", "2", "3"]
+
+
+@pytest.mark.asyncio
+async def test_read_channel_chronological_after_returns_contiguous_messages(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        params = request.url.params
+        if params.get("after") == "100":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(i),
+                        "author": {"id": "1", "username": "a"},
+                        "content": f"m{i}",
+                    }
+                    for i in range(200, 100, -1)
+                ],
+            )
+        if params.get("after") == "200":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(i),
+                        "author": {"id": "1", "username": "a"},
+                        "content": f"m{i}",
+                    }
+                    for i in range(300, 200, -1)
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(
+            client, channel_id="999", limit=150, after="100", chronological=True
+        )
+
+    output = json.loads(capsys.readouterr().out)
+    ids = [int(m["id"]) for m in output]
+    assert ids == list(range(101, 251))
+
+
+@pytest.mark.asyncio
+async def test_read_channel_chronological_max_bytes_keeps_newest(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": str(i),
+            "author": {"id": "1", "username": "alice"},
+            "content": f"message number {i}",
+            "type": 0,
+        }
+        for i in range(10, 0, -1)
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(
+            client, channel_id="999", limit=10, max_bytes=500, chronological=True
+        )
+
+    captured = capsys.readouterr()
+    assert len(captured.out.encode()) <= 500
+    output = json.loads(captured.out)
+    assert output["truncated"] is True
+    kept_ids = [int(m["id"]) for m in output["messages"]]
+    assert kept_ids == sorted(kept_ids)
+    assert kept_ids[-1] == 10

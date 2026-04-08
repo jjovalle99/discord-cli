@@ -34,6 +34,10 @@ _USER_MENTION_RE = re.compile(_USER_MENTION_PAT)
 _CODE_OR_MENTION_RE = re.compile(rf"```[\s\S]*?```|`[^`]+`|{_USER_MENTION_PAT}")
 
 
+def _message_sort_key(m: dict[str, Any]) -> int:
+    return int(m["id"])
+
+
 _AUTHOR_SCAN_CAP = 500
 _SYSTEM_MESSAGE_TYPES = frozenset(
     {
@@ -166,6 +170,7 @@ async def read_channel(
     pinned: bool = False,
     before: str | None = None,
     after: str | None = None,
+    chronological: bool = False,
 ) -> None:
     if before and after:
         write_error(
@@ -218,12 +223,14 @@ async def read_channel(
             if page_exhausted or (author and scanned >= _AUTHOR_SCAN_CAP):
                 break
             if after:
-                params["after"] = max(batch, key=lambda m: int(m["id"]))["id"]
+                params["after"] = max(batch, key=_message_sort_key)["id"]
             else:
                 params["before"] = batch[-1]["id"]
             if not needs_client_filter:
                 params["limit"] = str(min(limit - len(all_messages), 100))
 
+    if after:
+        all_messages.sort(key=_message_sort_key)
     result = all_messages[:limit]
     if resolve_channels:
         try:
@@ -245,8 +252,12 @@ async def read_channel(
                     f"--max-bytes {max_bytes} is too small for even an empty response",
                 )
                 raise SystemExit(1)
+            if chronological and not after:
+                envelope["messages"].reverse()
             write_success(envelope)
             return
+    if chronological and not after:
+        result.reverse()
     write_success(result)
 
 
