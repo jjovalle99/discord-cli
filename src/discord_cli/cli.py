@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 import cyclopts
 import httpx
@@ -110,7 +111,7 @@ def search_messages_cmd(
     query: str,
     *,
     limit: int = 25,
-    channel_id: str | None = None,
+    channel: Annotated[str | None, cyclopts.Parameter(name=["--channel", "--channel-id"])] = None,
     author_id: str | None = None,
     has: str | None = None,
     sort_by: str = "timestamp",
@@ -126,7 +127,7 @@ def search_messages_cmd(
             guild_id=guild_id,
             query=query,
             limit=limit,
-            channel_id=channel_id,
+            channel_id=channel,
             author_id=author_id,
             has=has,
             sort_by=sort_by,

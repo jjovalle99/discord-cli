@@ -6,7 +6,7 @@ from discord_cli.client import DiscordClient
 from discord_cli.output import write_success
 
 MAX_SEARCH_RETRIES = 3
-SEARCH_INDEX_NOTE = "Search index may lag behind recent messages. Use --fallback-read with --channel-id to also search channel history."
+SEARCH_INDEX_NOTE = "Search index may lag behind recent messages. Use --fallback-read with --channel to also search channel history."
 _FALLBACK_PAGE_SIZE = 100
 _FALLBACK_MAX_SCAN = 500
 
@@ -68,7 +68,7 @@ def _validate_fallback_filters(
     offset: int = 0,
 ) -> str:
     if not channel_id:
-        msg = "--fallback-read requires --channel-id"
+        msg = "--fallback-read requires --channel"
         raise ValueError(msg)
     unsupported: list[str] = []
     if author_id:

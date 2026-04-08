@@ -1,10 +1,28 @@
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
 
 from discord_cli.client import DiscordClient
 from discord_cli.commands.search import search_messages
+
+VALIDATE_RESPONSE = {"id": "1", "username": "a", "global_name": "A"}
+
+
+def _mock_get_client(mock_transport: httpx.AsyncBaseTransport):  # noqa: ANN201, ANN202
+    @asynccontextmanager
+    async def _factory(
+        token: str | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> AsyncIterator[DiscordClient]:
+        async with DiscordClient(
+            token=token or "t", transport=mock_transport
+        ) as client:
+            yield client
+
+    return _factory
 
 
 @pytest.mark.asyncio
@@ -108,7 +126,7 @@ async def test_search_fallback_read_returns_matching_messages(
 async def test_search_fallback_read_without_channel_id_raises() -> None:
     transport = httpx.MockTransport(lambda _: httpx.Response(200, json={}))
     async with DiscordClient(token="t", transport=transport) as client:
-        with pytest.raises(ValueError, match="--fallback-read requires --channel-id"):
+        with pytest.raises(ValueError, match="--fallback-read requires --channel$"):
             await search_messages(
                 client, guild_id="111", query="hello", fallback_read=True
             )
@@ -204,3 +222,37 @@ async def test_search_output_includes_index_lag_note(
     output = json.loads(capsys.readouterr().out)
     assert "note" in output
     assert "index" in output["note"].lower()
+    assert "--channel" in output["note"]
+    assert "--channel-id" not in output["note"]
+
+
+@pytest.mark.parametrize("flag", ["--channel", "--channel-id"])
+def test_search_messages_cli_accepts_channel_flags(
+    flag: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from discord_cli.cli import app
+
+    search_response = {"total_results": 1, "messages": [[{"id": "1", "content": "hi"}]]}
+    captured_params: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/users/@me" in request.url.path:
+            return httpx.Response(200, json=VALIDATE_RESPONSE)
+        captured_params.update(dict(request.url.params))
+        return httpx.Response(200, json=search_response)
+
+    monkeypatch.setenv("DISCORD_TOKEN", "t")
+    monkeypatch.setattr(
+        "discord_cli.cli._get_client",
+        _mock_get_client(httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        app(["search", "messages", "111", "hi", flag, "999"])
+
+    assert exc_info.value.code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["total_results"] == 1
+    assert captured_params.get("channel_id") == "999"
