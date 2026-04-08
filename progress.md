@@ -278,7 +278,17 @@
 - 6 new tests (write_status, quiet suppression, client rate-limit, _run integration, auth quiet, stream quiet)
 - Edge case: `--quiet` suppresses the plaintext credential fallback warning, but `credential_storage` field in JSON output ensures agents can still detect and reject plaintext storage
 
+## Issue #25: search filters (--before, --after, --from) — DONE
+- `--before <date>` and `--after <date>` on `search messages` for date-bounded search
+- Converts ISO 8601 dates to Discord snowflakes, passes as `max_id`/`min_id` API params
+- `--from <user_id>` alias for `--author-id` (backwards-compatible, both flags accepted)
+- Extracted `date_to_snowflake` from `read.py` into shared `snowflake.py` module
+- Date bounds threaded into `--fallback-read` channel history scan (seeded pagination cursors)
+- Invalid dates produce structured `invalid_date` JSON error (not misleading `auth_error`)
+- 6 new tests (before/max_id, after/min_id, invalid date error, fallback bounds, --from alias, --author-id alias)
+- Edge case: `--fallback-read` with `--after` uses Discord's `after` cursor for forward pagination; combined with `--before` seeds the `before` cursor
+
 ## Summary
-- 167 tests total, all gates pass (pytest, ruff, ty)
+- 173 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
