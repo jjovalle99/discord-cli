@@ -13,6 +13,7 @@ from discord_cli.commands.list import (
     list_servers,
 )
 from discord_cli.commands.read import (
+    Format,
     read_channel,
     read_channel_info,
     read_member,
@@ -214,6 +215,7 @@ def read_channel_cmd(
     after: str | None = None,
     since: str | None = None,
     chronological: bool = False,
+    format: Format = "json",
     token: str | None = None,
 ) -> None:
     """Fetch message history of a channel or thread."""
@@ -233,6 +235,7 @@ def read_channel_cmd(
             after=after,
             since=since,
             chronological=chronological,
+            format=format,
         ),
         token,
     )
@@ -254,6 +257,7 @@ def read_thread_cmd(
     after: str | None = None,
     since: str | None = None,
     chronological: bool = False,
+    format: Format = "json",
     token: str | None = None,
 ) -> None:
     """Fetch messages in a thread (alias for read channel)."""
@@ -273,6 +277,7 @@ def read_thread_cmd(
             after=after,
             since=since,
             chronological=chronological,
+            format=format,
         ),
         token,
     )
@@ -284,12 +289,17 @@ def read_message_cmd(
     message_id: str,
     *,
     compact: bool = False,
+    format: Format = "json",
     token: str | None = None,
 ) -> None:
     """Fetch a single message."""
     _run(
         lambda c: read_message(
-            c, channel_id=channel_id, message_id=message_id, compact=compact
+            c,
+            channel_id=channel_id,
+            message_id=message_id,
+            compact=compact,
+            format=format,
         ),
         token,
     )

@@ -1,29 +1,55 @@
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from discord_cli.client import DiscordClient
 from discord_cli.output import write_error, write_success
 
+type Format = Literal["json", "jsonl", "text"]
 
-def _stdout_size(data: list[dict[str, Any]] | dict[str, Any]) -> int:
+
+def _to_items(data: list[dict[str, Any]] | dict[str, Any]) -> list[dict[str, Any]]:
+    return data if isinstance(data, list) else [data]
+
+
+def _item_size(msg: dict[str, Any], fmt: Format) -> int:
+    if fmt == "text":
+        return len(_format_text_line(msg).encode()) + 1
+    if fmt == "jsonl":
+        return len(json.dumps(msg).encode()) + 1
+    return 0
+
+
+def _output_size(data: list[dict[str, Any]] | dict[str, Any], fmt: Format = "json") -> int:
+    if fmt in ("text", "jsonl"):
+        return sum(_item_size(m, fmt) for m in _to_items(data))
     return len(json.dumps(data, indent=2).encode()) + 1
 
 
 def _truncate_to_fit(
-    messages: list[dict[str, Any]], max_bytes: int, total_available: int
-) -> dict[str, Any] | None:
+    messages: list[dict[str, Any]],
+    max_bytes: int,
+    total_size: int,
+    fmt: Format = "json",
+) -> list[dict[str, Any]] | None:
     kept = list(messages)
+    if fmt in ("text", "jsonl"):
+        current = total_size
+        while current > max_bytes:
+            if not kept:
+                return None
+            current -= _item_size(kept.pop(), fmt)
+        return kept
     while True:
         envelope: dict[str, Any] = {
-            "truncated": len(kept) < total_available,
+            "truncated": len(kept) < len(messages),
             "messages_returned": len(kept),
-            "messages_available": total_available,
+            "messages_available": len(messages),
             "messages": kept,
         }
-        if _stdout_size(envelope) <= max_bytes:
-            return envelope
+        if _output_size(envelope) <= max_bytes:
+            return kept
         if not kept:
             return None
         kept.pop()
@@ -157,6 +183,18 @@ def _resolve_channels(
     return msg
 
 
+def _format_text_line(msg: dict[str, Any]) -> str:
+    ts = msg.get("timestamp", "")
+    if ts:
+        dt = datetime.fromisoformat(ts)
+        ts_str = dt.strftime("%Y-%m-%d %H:%M")
+    else:
+        ts_str = "unknown"
+    username = msg.get("author", {}).get("username", "unknown")
+    content = msg.get("content", "").replace("\n", "\\n").replace("\r", "\\r")
+    return f"[{ts_str}] {username}: {content}"
+
+
 _DISCORD_EPOCH_MS = 1420070400000
 
 
@@ -166,6 +204,19 @@ def _since_to_snowflake(since: str) -> str:
         dt = dt.replace(tzinfo=timezone.utc)
     unix_ms = int(dt.timestamp() * 1000)
     return str((unix_ms - _DISCORD_EPOCH_MS) << 22)
+
+
+def _write_output(
+    data: list[dict[str, Any]] | dict[str, Any], fmt: Format = "json"
+) -> None:
+    if fmt == "text":
+        for msg in _to_items(data):
+            print(_format_text_line(msg))
+    elif fmt == "jsonl":
+        for msg in _to_items(data):
+            print(json.dumps(msg))
+    else:
+        write_success(data)
 
 
 async def read_channel(
@@ -184,6 +235,7 @@ async def read_channel(
     after: str | None = None,
     since: str | None = None,
     chronological: bool = False,
+    format: Format = "json",
 ) -> None:
     if since and after:
         write_error(
@@ -269,21 +321,31 @@ async def read_channel(
     if compact:
         result = [_compact_message(msg) for msg in result]
     if max_bytes is not None:
-        if _stdout_size(result) > max_bytes:
-            envelope = _truncate_to_fit(result, max_bytes, len(result))
-            if envelope is None:
+        total_size = _output_size(result, format)
+        if total_size > max_bytes:
+            kept = _truncate_to_fit(result, max_bytes, total_size, format)
+            if kept is None:
                 write_error(
                     "max_bytes_too_small",
                     f"--max-bytes {max_bytes} is too small for even an empty response",
                 )
                 raise SystemExit(1)
             if chronological and not after:
-                envelope["messages"].reverse()
-            write_success(envelope)
+                kept.reverse()
+            if format == "json":
+                envelope: dict[str, Any] = {
+                    "truncated": len(kept) < len(result),
+                    "messages_returned": len(kept),
+                    "messages_available": len(result),
+                    "messages": kept,
+                }
+                _write_output(envelope, format)
+            else:
+                _write_output(kept, format)
             return
     if chronological and not after:
         result.reverse()
-    write_success(result)
+    _write_output(result, format)
 
 
 async def read_message(
@@ -292,11 +354,12 @@ async def read_message(
     channel_id: str,
     message_id: str,
     compact: bool = False,
+    format: Format = "json",
 ) -> None:
     msg = await client.api_get(f"/channels/{channel_id}/messages/{message_id}")
     if compact:
         msg = _compact_message(msg)
-    write_success(msg)
+    _write_output(msg, format)
 
 
 async def read_server_info(client: DiscordClient, *, guild_id: str) -> None:

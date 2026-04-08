@@ -1359,3 +1359,159 @@ async def test_read_channel_chronological_max_bytes_keeps_newest(
     kept_ids = [int(m["id"]) for m in output["messages"]]
     assert kept_ids == sorted(kept_ids)
     assert kept_ids[-1] == 10
+
+
+def test_format_text_line_formats_message() -> None:
+    from discord_cli.commands.read import _format_text_line
+
+    msg = {
+        "id": "100",
+        "author": {"id": "1", "username": "alice", "global_name": "Alice"},
+        "content": "hello world",
+        "timestamp": "2026-04-01T21:41:00.000000+00:00",
+        "type": 0,
+    }
+    result = _format_text_line(msg)
+    assert result == "[2026-04-01 21:41] alice: hello world"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_format_text_outputs_text_lines(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "2",
+            "author": {"id": "1", "username": "alice", "global_name": "Alice"},
+            "content": "second message",
+            "timestamp": "2026-04-01T21:44:00.000000+00:00",
+            "type": 0,
+        },
+        {
+            "id": "1",
+            "author": {"id": "2", "username": "bob", "global_name": "Bob"},
+            "content": "first message",
+            "timestamp": "2026-04-01T21:41:00.000000+00:00",
+            "type": 0,
+        },
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", format="text")
+
+    out = capsys.readouterr().out
+    lines = out.strip().split("\n")
+    assert len(lines) == 2
+    assert lines[0] == "[2026-04-01 21:44] alice: second message"
+    assert lines[1] == "[2026-04-01 21:41] bob: first message"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_format_jsonl_outputs_one_json_per_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "2",
+            "author": {"id": "1", "username": "alice"},
+            "content": "second",
+            "timestamp": "2026-04-01T21:44:00+00:00",
+            "type": 0,
+        },
+        {
+            "id": "1",
+            "author": {"id": "2", "username": "bob"},
+            "content": "first",
+            "timestamp": "2026-04-01T21:41:00+00:00",
+            "type": 0,
+        },
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", format="jsonl")
+
+    out = capsys.readouterr().out
+    lines = out.strip().split("\n")
+    assert len(lines) == 2
+    first = json.loads(lines[0])
+    second = json.loads(lines[1])
+    assert first["id"] == "2"
+    assert second["id"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_read_message_format_text_outputs_single_text_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from discord_cli.commands.read import read_message
+
+    msg = {
+        "id": "100",
+        "content": "hello world",
+        "author": {"id": "1", "username": "alice"},
+        "timestamp": "2026-04-01T21:41:00.000000+00:00",
+    }
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=msg))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_message(
+            client, channel_id="999", message_id="100", format="text"
+        )
+
+    out = capsys.readouterr().out.strip()
+    assert out == "[2026-04-01 21:41] alice: hello world"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_format_text_escapes_newlines_in_content(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "1",
+            "author": {"id": "1", "username": "alice"},
+            "content": "line one\nline two\nline three",
+            "timestamp": "2026-04-01T21:41:00.000000+00:00",
+            "type": 0,
+        },
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", format="text")
+
+    lines = capsys.readouterr().out.strip().split("\n")
+    assert len(lines) == 1
+    assert "\\n" in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_read_channel_format_text_with_max_bytes_truncates_text_lines(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": str(i),
+            "author": {"id": "1", "username": "alice"},
+            "content": f"message number {i} with some extra padding text",
+            "timestamp": "2026-04-01T21:41:00.000000+00:00",
+            "type": 0,
+        }
+        for i in range(10, 0, -1)
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(
+            client, channel_id="999", limit=10, max_bytes=300, format="text"
+        )
+
+    captured = capsys.readouterr()
+    assert len(captured.out.encode()) <= 300
+    lines = [line for line in captured.out.strip().split("\n") if line]
+    assert len(lines) < 10
+    assert len(lines) > 0
+    for line in lines:
+        assert line.startswith("[2026-04-01 21:41] alice: message number")
