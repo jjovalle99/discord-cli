@@ -231,7 +231,16 @@
 - Edge case: multi-route commands (list_threads, list_members) report min remaining across all subrequests — worst-case view for agent throttling decisions
 - Edge case: `--rate-limit-info --cache-ttl N` silently skips caching rather than emitting stale rate limit data
 
+## Issue #21: whoami command — DONE
+- `discord-cli whoami` shows current auth status: `{id, username, global_name, token_source, token_valid}`
+- `resolve_token` returns `ResolvedToken(value, source)` NamedTuple with `TokenSource` literal type (`flag`, `environment_variable`, `config_file`, `keyring`)
+- Bypasses `_get_client` to avoid double `/users/@me` call — creates bare `DiscordClient` + single `validate_token`
+- On invalid token: emits `{token_source, token_valid: false}` to stdout with exit code 1 (structured output for agents)
+- On valid token: emits user info + source + `token_valid: true`
+- 3 new tests (success output, invalid token with source, single API call assertion)
+- Edge case: `whoami` does not apply `X-Super-Properties` header (no `_get_client`) — acceptable since it only hits `/users/@me`
+
 ## Summary
-- 144 tests total, all gates pass (pytest, ruff, ty)
+- 147 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
