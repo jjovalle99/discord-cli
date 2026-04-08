@@ -5,6 +5,43 @@ from discord_cli.output import write_success
 
 
 _AUTHOR_SCAN_CAP = 500
+_SYSTEM_MESSAGE_TYPES = frozenset(
+    {
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        14,
+        15,
+        16,
+        17,
+        18,
+        21,
+        22,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        31,
+        32,
+        36,
+        37,
+        38,
+        39,
+        44,
+        46,
+    }
+)
 
 _AUTHOR_KEEP_FIELDS = ("id", "username", "global_name")
 _AUTHOR_PROVENANCE_FIELDS = ("bot", "system")
@@ -34,10 +71,14 @@ async def read_channel(
     limit: int = 50,
     compact: bool = False,
     author: str | None = None,
+    skip_system: bool = False,
 ) -> None:
     all_messages: list[dict[str, Any]] = []
     scanned = 0
-    params: dict[str, str] = {"limit": str(100 if author else min(limit, 100))}
+    needs_client_filter = bool(author) or skip_system
+    params: dict[str, str] = {
+        "limit": str(100 if needs_client_filter else min(limit, 100))
+    }
 
     while len(all_messages) < limit:
         batch = await client.api_get_list(
@@ -49,9 +90,15 @@ async def read_channel(
         cursor = batch[-1]["id"]
         page_exhausted = len(batch) < 100
 
-        if author:
-            scanned += len(batch)
-            filtered = [m for m in batch if m["author"]["id"] == author]
+        if needs_client_filter:
+            if author:
+                scanned += len(batch)
+            filtered = [
+                m
+                for m in batch
+                if (not skip_system or m["type"] not in _SYSTEM_MESSAGE_TYPES)
+                and (not author or m["author"]["id"] == author)
+            ]
             all_messages.extend(filtered)
         else:
             all_messages.extend(batch)
@@ -59,7 +106,7 @@ async def read_channel(
         if page_exhausted or (author and scanned >= _AUTHOR_SCAN_CAP):
             break
         params["before"] = cursor
-        if not author:
+        if not needs_client_filter:
             params["limit"] = str(min(limit - len(all_messages), 100))
 
     result = all_messages[:limit]

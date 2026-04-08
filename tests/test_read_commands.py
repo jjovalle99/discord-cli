@@ -364,6 +364,189 @@ async def test_read_channel_author_paginates_to_fill_limit(
 
 
 @pytest.mark.asyncio
+async def test_read_channel_skip_system_filters_system_types(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "5",
+            "author": {"id": "u1", "username": "alice"},
+            "content": "hello",
+            "type": 0,
+        },
+        {
+            "id": "4",
+            "author": {"id": "u2", "username": "bob"},
+            "content": "",
+            "type": 7,
+        },
+        {
+            "id": "3",
+            "author": {"id": "u3", "username": "carol"},
+            "content": "",
+            "type": 6,
+        },
+        {
+            "id": "2",
+            "author": {"id": "u1", "username": "alice"},
+            "content": "reply",
+            "type": 19,
+        },
+        {
+            "id": "1",
+            "author": {"id": "u4", "username": "dave"},
+            "content": "ctx cmd",
+            "type": 23,
+        },
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", skip_system=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 3
+    assert output[0]["type"] == 0
+    assert output[1]["type"] == 19
+    assert output[2]["type"] == 23
+
+
+@pytest.mark.asyncio
+async def test_read_channel_skip_system_paginates_to_fill_limit(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    page1 = [
+        {
+            "id": str(i),
+            "author": {"id": "u1", "username": "x"},
+            "content": "",
+            "type": 7,
+        }
+        for i in range(100, 0, -1)
+    ]
+    page1[0] = {
+        "id": "100",
+        "author": {"id": "u1", "username": "x"},
+        "content": "real",
+        "type": 0,
+    }
+
+    page2 = [
+        {
+            "id": str(i),
+            "author": {"id": "u1", "username": "x"},
+            "content": f"msg{i}",
+            "type": 0,
+        }
+        for i in range(200, 100, -1)
+    ]
+
+    call_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(200, json=page1)
+        if call_count == 2:
+            return httpx.Response(200, json=page2)
+        return httpx.Response(200, json=[])
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", limit=5, skip_system=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 5
+    assert all(m["type"] == 0 for m in output)
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_read_channel_skip_system_combined_with_author(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "5",
+            "author": {"id": "u1", "username": "alice"},
+            "content": "hello",
+            "type": 0,
+        },
+        {
+            "id": "4",
+            "author": {"id": "u2", "username": "bob"},
+            "content": "",
+            "type": 7,
+        },
+        {
+            "id": "3",
+            "author": {"id": "u1", "username": "alice"},
+            "content": "",
+            "type": 6,
+        },
+        {
+            "id": "2",
+            "author": {"id": "u2", "username": "bob"},
+            "content": "bob msg",
+            "type": 0,
+        },
+        {
+            "id": "1",
+            "author": {"id": "u1", "username": "alice"},
+            "content": "reply",
+            "type": 19,
+        },
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", author="u1", skip_system=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 2
+    assert all(m["author"]["id"] == "u1" for m in output)
+    assert output[0]["type"] == 0
+    assert output[1]["type"] == 19
+
+
+@pytest.mark.asyncio
+async def test_read_channel_skip_system_not_capped_at_author_scan_cap(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from discord_cli.commands.read import _AUTHOR_SCAN_CAP
+
+    pages_needed = _AUTHOR_SCAN_CAP // 100
+    beyond_cap = pages_needed + 2
+    call_count = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count > beyond_cap:
+            return httpx.Response(200, json=[])
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": str(call_count * 100 + i),
+                    "author": {"id": "u1", "username": "x"},
+                    "content": "",
+                    "type": 7,
+                }
+                for i in range(100, 0, -1)
+            ],
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", limit=10, skip_system=True)
+
+    json.loads(capsys.readouterr().out)
+    assert call_count > pages_needed
+
+
+@pytest.mark.asyncio
 async def test_read_channel_author_stops_at_scan_cap(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
