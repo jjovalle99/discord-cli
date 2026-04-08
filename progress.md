@@ -112,7 +112,16 @@
 - 5 new tests (before cursor, after pagination, mutual exclusivity, pinned rejection, newest-first regression)
 - Edge case: `--after` returns messages in ascending order (oldest first) per Discord API spec
 
+## Issue #10: --resolve-mentions flag — DONE
+- `--resolve-mentions` on `read channel` and `read thread`
+- Replaces `<@id>` and `<@!id>` (nick-prefix) patterns in message content with `@username`
+- Uses the `mentions` array already present in the message — no extra API calls
+- Code-span aware: mentions inside backtick-delimited code (inline and fenced) are preserved
+- Unknown mention IDs (not in `mentions` array) left unchanged
+- 3 new tests (basic resolution + unknown ID preservation, nick-prefix format, code-span preservation)
+- Edge case: pre-existing `--resolve-channels` does not protect code spans — separate concern, not addressed here
+
 ## Summary
-- 89 tests total, all gates pass (pytest, ruff, ty)
+- 92 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts (Discord API limitation)
