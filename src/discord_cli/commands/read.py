@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Literal
 
 from urllib.parse import unquote, urlparse
@@ -9,6 +9,7 @@ import httpx
 
 from discord_cli.client import _ALLOWED_HOSTS, DiscordClient
 from discord_cli.output import write_error, write_success
+from discord_cli.snowflake import date_to_snowflake
 
 
 def _parse_attachment_url(url: str) -> tuple[str, str, str] | None:
@@ -252,17 +253,6 @@ def _format_text_line(msg: dict[str, Any]) -> str:
     return f"[{ts_str}] {username}: {content}"
 
 
-_DISCORD_EPOCH_MS = 1420070400000
-
-
-def _since_to_snowflake(since: str) -> str:
-    dt = datetime.fromisoformat(since)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    unix_ms = int(dt.timestamp() * 1000)
-    return str((unix_ms - _DISCORD_EPOCH_MS) << 22)
-
-
 def _write_output(
     data: list[dict[str, Any]] | dict[str, Any], fmt: Format = "json"
 ) -> None:
@@ -303,7 +293,7 @@ async def read_channel(
         raise SystemExit(1)
     if since:
         try:
-            after = _since_to_snowflake(since)
+            after = date_to_snowflake(since)
         except ValueError:
             write_error("invalid_since", f"Invalid ISO 8601 timestamp: {since}")
             raise SystemExit(1)

@@ -2,7 +2,8 @@ import asyncio
 from typing import Any
 
 from discord_cli.client import DiscordClient
-from discord_cli.output import write_status, write_success
+from discord_cli.output import write_error, write_status, write_success
+from discord_cli.snowflake import date_to_snowflake
 
 MAX_SEARCH_RETRIES = 3
 SEARCH_INDEX_NOTE = "Search index may lag behind recent messages. Use --fallback-read with --channel to also search channel history."
@@ -29,10 +30,20 @@ async def _search(
 
 
 async def _fallback_channel_search(
-    client: DiscordClient, channel_id: str, query: str, limit: int
+    client: DiscordClient,
+    channel_id: str,
+    query: str,
+    limit: int,
+    *,
+    max_id: str | None = None,
+    min_id: str | None = None,
 ) -> dict[str, Any]:
     matched: list[dict[str, Any]] = []
     params: dict[str, str] = {"limit": str(_FALLBACK_PAGE_SIZE)}
+    if max_id:
+        params["before"] = max_id
+    if min_id:
+        params["after"] = min_id
     query_lower = query.lower()
     scanned = 0
 
@@ -82,6 +93,14 @@ def _validate_fallback_filters(
     return channel_id
 
 
+def _parse_date_filter(value: str, flag: str) -> str:
+    try:
+        return date_to_snowflake(value)
+    except (ValueError, OverflowError):
+        write_error("invalid_date", f"Invalid {flag} date: {value!r}. Use ISO 8601 format.")
+        raise SystemExit(1)
+
+
 async def search_messages(
     client: DiscordClient,
     *,
@@ -94,6 +113,8 @@ async def search_messages(
     sort_by: str = "timestamp",
     sort_order: str = "desc",
     offset: int = 0,
+    before: str | None = None,
+    after: str | None = None,
     fallback_read: bool = False,
 ) -> None:
     validated_channel_id: str | None = None
@@ -101,6 +122,9 @@ async def search_messages(
         validated_channel_id = _validate_fallback_filters(
             channel_id=channel_id, author_id=author_id, has=has, offset=offset
         )
+
+    max_id = _parse_date_filter(before, "--before") if before else None
+    min_id = _parse_date_filter(after, "--after") if after else None
 
     params: dict[str, str] = {
         "content": query,
@@ -115,12 +139,17 @@ async def search_messages(
         params["author_id"] = author_id
     if has:
         params["has"] = has
+    if max_id:
+        params["max_id"] = max_id
+    if min_id:
+        params["min_id"] = min_id
 
     result = await _search(client, f"/guilds/{guild_id}/messages/search", params)
 
     if validated_channel_id and result.get("total_results", 0) == 0:
         result = await _fallback_channel_search(
-            client, validated_channel_id, query, limit
+            client, validated_channel_id, query, limit,
+            max_id=max_id, min_id=min_id,
         )
     else:
         result["note"] = SEARCH_INDEX_NOTE

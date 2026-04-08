@@ -226,6 +226,132 @@ async def test_search_output_includes_index_lag_note(
     assert "--channel-id" not in output["note"]
 
 
+@pytest.mark.asyncio
+async def test_search_messages_before_sends_max_id(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_params: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.update(dict(request.url.params))
+        return httpx.Response(200, json={"total_results": 0, "messages": []})
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await search_messages(
+            client, guild_id="111", query="test", before="2026-01-15"
+        )
+
+    assert "max_id" in captured_params
+    from discord_cli.snowflake import date_to_snowflake
+
+    assert captured_params["max_id"] == date_to_snowflake("2026-01-15")
+    output = json.loads(capsys.readouterr().out)
+    assert output["total_results"] == 0
+
+
+@pytest.mark.asyncio
+async def test_search_messages_invalid_before_raises(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json={}))
+    async with DiscordClient(token="t", transport=transport) as client:
+        with pytest.raises(SystemExit) as exc_info:
+            await search_messages(
+                client, guild_id="111", query="test", before="not-a-date"
+            )
+    assert exc_info.value.code == 1
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "invalid_date"
+
+
+@pytest.mark.asyncio
+async def test_search_messages_after_sends_min_id(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_params: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.update(dict(request.url.params))
+        return httpx.Response(200, json={"total_results": 0, "messages": []})
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await search_messages(
+            client, guild_id="111", query="test", after="2026-01-15"
+        )
+
+    assert "min_id" in captured_params
+    from discord_cli.snowflake import date_to_snowflake
+
+    assert captured_params["min_id"] == date_to_snowflake("2026-01-15")
+    output = json.loads(capsys.readouterr().out)
+    assert output["total_results"] == 0
+
+
+@pytest.mark.asyncio
+async def test_search_fallback_threads_date_bounds(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_fallback_params: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "search" in request.url.path:
+            return httpx.Response(200, json={"total_results": 0, "messages": []})
+        captured_fallback_params.update(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json=[{"id": "1", "content": "match me"}],
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await search_messages(
+            client,
+            guild_id="111",
+            query="match",
+            channel_id="999",
+            before="2026-01-15",
+            fallback_read=True,
+        )
+
+    from discord_cli.snowflake import date_to_snowflake
+
+    assert captured_fallback_params.get("before") == date_to_snowflake("2026-01-15")
+    output = json.loads(capsys.readouterr().out)
+    assert output["total_results"] == 1
+
+
+@pytest.mark.parametrize("flag", ["--from", "--author-id"])
+def test_search_messages_cli_accepts_from_flags(
+    flag: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from discord_cli.cli import app
+
+    search_response = {"total_results": 1, "messages": [[{"id": "1", "content": "hi"}]]}
+    captured_params: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/users/@me" in request.url.path:
+            return httpx.Response(200, json=VALIDATE_RESPONSE)
+        captured_params.update(dict(request.url.params))
+        return httpx.Response(200, json=search_response)
+
+    monkeypatch.setenv("DISCORD_TOKEN", "t")
+    monkeypatch.setattr(
+        "discord_cli.cli._get_client",
+        _mock_get_client(httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        app(["search", "messages", "111", "hi", flag, "999"])
+
+    assert exc_info.value.code == 0
+    assert captured_params.get("author_id") == "999"
+
+
 @pytest.mark.parametrize("flag", ["--channel", "--channel-id"])
 def test_search_messages_cli_accepts_channel_flags(
     flag: str,
