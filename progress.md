@@ -174,7 +174,19 @@
 - Edge case: Discord CDN attachment URLs contain `attachment_id` not `message_id` — auto-refresh from URL alone is impossible, hence the `--channel --message --filename` approach
 - Edge case: `GET /channels/{id}/messages/{id}` returns 403 on some servers for user tokens (Discord API limitation, pre-existing)
 
+## Issue #16: list threads command — DONE
+- `list threads <channel_id>` combines three thread discovery sources
+- Archived public threads via `GET /channels/{id}/threads/archived/public` with pagination (`has_more` + `before` cursor)
+- Archived private threads via `GET /channels/{id}/threads/archived/private` (graceful 403/404 — requires `MANAGE_THREADS`)
+- Active threads discovered from recent messages' `thread` field (100-message scan)
+- All three sources fetched concurrently via `asyncio.gather`
+- Deduplication by thread ID (archived sources take precedence)
+- Output shape: `{id, name, message_count, archived}` — `archived` flattened from `thread_metadata`
+- 5 new tests (archived shaping, active discovery, dedup, 403 survival, pagination)
+- Edge case: active thread discovery limited to threads whose starter message is within the last 100 parent-channel messages
+- Edge case: private archived threads return empty on servers where user lacks `MANAGE_THREADS`
+
 ## Summary
-- 117 tests total, all gates pass (pytest, ruff, ty)
+- 122 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
-- Edge case: active threads not listable by user accounts (Discord API limitation)
+- Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
