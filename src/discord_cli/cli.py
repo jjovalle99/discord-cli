@@ -108,6 +108,7 @@ def search_messages_cmd(
     sort_by: str = "timestamp",
     sort_order: str = "desc",
     offset: int = 0,
+    fallback_read: bool = False,
     token: str | None = None,
 ) -> None:
     """Search messages in a server."""
@@ -123,6 +124,7 @@ def search_messages_cmd(
             sort_by=sort_by,
             sort_order=sort_order,
             offset=offset,
+            fallback_read=fallback_read,
         ),
         token,
     )
@@ -134,11 +136,18 @@ def search_dms_cmd(
     query: str,
     *,
     limit: int = 25,
+    fallback_read: bool = False,
     token: str | None = None,
 ) -> None:
     """Search messages in a DM channel."""
     _run(
-        lambda c: search_dms(c, channel_id=channel_id, query=query, limit=limit),
+        lambda c: search_dms(
+            c,
+            channel_id=channel_id,
+            query=query,
+            limit=limit,
+            fallback_read=fallback_read,
+        ),
         token,
     )
 
