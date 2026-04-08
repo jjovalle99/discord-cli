@@ -55,3 +55,73 @@ async def list_channels(client: DiscordClient, guild_id: str) -> None:
 async def list_dms(client: DiscordClient) -> None:
     channels = await client.api_get_list("/users/@me/channels")
     write_success([_shape_with_type_name(c, _DM_FIELDS) for c in channels])
+
+
+def _shape_member(
+    raw: dict[str, Any], role_id_to_name: dict[str, str]
+) -> dict[str, Any]:
+    user = raw.get("user", {})
+    resolved_roles = [role_id_to_name.get(rid, rid) for rid in raw.get("roles", [])]
+    return {
+        "id": user.get("id"),
+        "username": user.get("username"),
+        "roles": resolved_roles,
+    }
+
+
+_MEMBERS_PAGE_SIZE = 1000
+
+
+async def list_members(
+    client: DiscordClient,
+    guild_id: str,
+    *,
+    limit: int = 1000,
+    role: str | None = None,
+) -> None:
+    import asyncio
+
+    first_page_size = (
+        _MEMBERS_PAGE_SIZE if role is not None else min(limit, _MEMBERS_PAGE_SIZE)
+    )
+    roles_coro = client.api_get_list(f"/guilds/{guild_id}/roles")
+    first_batch_coro = client.api_get_list(
+        f"/guilds/{guild_id}/members",
+        params={"limit": str(first_page_size), "after": "0"},
+    )
+    roles_list, first_batch = await asyncio.gather(roles_coro, first_batch_coro)
+
+    role_id_to_name: dict[str, str] = {r["id"]: r["name"] for r in roles_list}
+    target_role_id: str | None = None
+    if role is not None:
+        for r in roles_list:
+            if r["name"] == role:
+                target_role_id = r["id"]
+                break
+
+    result: list[dict[str, Any]] = []
+    batch = first_batch
+    page_size = first_page_size
+    while True:
+        if not batch:
+            break
+        for m in batch:
+            if target_role_id is not None and target_role_id not in m.get("roles", []):
+                continue
+            result.append(_shape_member(m, role_id_to_name))
+            if len(result) >= limit:
+                break
+        if len(result) >= limit or len(batch) < page_size:
+            break
+        after = batch[-1].get("user", {}).get("id", "0")
+        page_size = (
+            _MEMBERS_PAGE_SIZE
+            if role is not None
+            else min(limit - len(result), _MEMBERS_PAGE_SIZE)
+        )
+        batch = await client.api_get_list(
+            f"/guilds/{guild_id}/members",
+            params={"limit": str(page_size), "after": after},
+        )
+
+    write_success(result)

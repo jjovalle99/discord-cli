@@ -140,7 +140,17 @@
 - 5 new tests (snowflake conversion, mutual exclusivity, invalid timestamp, timezone-aware, incremental-read slice semantics)
 - Edge case: when more messages exist after the timestamp than `--limit`, returns the oldest slice (nearest to cutoff) — correct for incremental polling workflows
 
+## Issue #13: list members command — DONE
+- `list members <guild_id>` with `--role <name>` filter and `--limit N`
+- Fetches guild roles and first members page concurrently via `asyncio.gather`
+- Cursor-based pagination via Discord's `after` parameter for guilds > 1000 members
+- Resolves role IDs to human-readable names in output
+- `--role` filter scans across pages until `limit` matches found or guild exhausted
+- Filters on raw role IDs before shaping (avoids unnecessary name resolution for discarded members)
+- 4 new tests (role resolution, role filter, pagination with cursor, cross-page role scanning)
+- Edge case: `GET /guilds/{id}/members` returns 403 for user accounts on most servers (Discord API limitation for non-bot tokens). Surfaced as structured error via existing `DiscordAPIError` handler.
+
 ## Summary
-- 100 tests total, all gates pass (pytest, ruff, ty)
+- 104 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts (Discord API limitation)

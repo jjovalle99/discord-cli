@@ -6,7 +6,12 @@ import cyclopts
 import httpx
 
 from discord_cli.client import DiscordClient
-from discord_cli.commands.list import list_channels, list_dms, list_servers
+from discord_cli.commands.list import (
+    list_channels,
+    list_dms,
+    list_members,
+    list_servers,
+)
 from discord_cli.commands.read import (
     read_channel,
     read_channel_info,
@@ -179,6 +184,18 @@ def list_dms_cmd(
 ) -> None:
     """List open DM conversations."""
     _run(lambda c: list_dms(c), token)
+
+
+@list_app.command(name="members")
+def list_members_cmd(
+    guild_id: str,
+    *,
+    role: str | None = None,
+    limit: int = 1000,
+    token: str | None = None,
+) -> None:
+    """List members in a server."""
+    _run(lambda c: list_members(c, guild_id=guild_id, limit=limit, role=role), token)
 
 
 @read_app.command(name="channel")
