@@ -918,6 +918,147 @@ async def test_read_channel_pinned_rejects_skip_system(
 
 
 @pytest.mark.asyncio
+async def test_read_channel_before_passes_cursor_to_api(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_params: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json=[
+                {"id": "99", "author": {"id": "1", "username": "a"}, "content": "old"},
+            ],
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", limit=5, before="200")
+
+    assert captured_params[0]["before"] == "200"
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 1
+    assert output[0]["id"] == "99"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_after_paginates_forward(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_params: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.append(dict(request.url.params))
+        params = request.url.params
+        if "after" in params and params["after"] == "100":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(i),
+                        "author": {"id": "1", "username": "a"},
+                        "content": f"p1-{i}",
+                    }
+                    for i in range(101, 201)
+                ],
+            )
+        if "after" in params and params["after"] == "200":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "201",
+                        "author": {"id": "1", "username": "a"},
+                        "content": "last",
+                    },
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", limit=150, after="100")
+
+    assert captured_params[0]["after"] == "100"
+    assert captured_params[1]["after"] == "200"
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 101
+
+
+@pytest.mark.asyncio
+async def test_read_channel_before_and_after_mutually_exclusive(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=[]))
+    async with DiscordClient(token="t", transport=transport) as client:
+        with pytest.raises(SystemExit, match="1"):
+            await read_channel(client, channel_id="999", before="200", after="100")
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "incompatible_flags"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_pinned_rejects_before(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=[]))
+    async with DiscordClient(token="t", transport=transport) as client:
+        with pytest.raises(SystemExit, match="1"):
+            await read_channel(client, channel_id="999", pinned=True, before="200")
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "incompatible_flags"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_after_handles_newest_first_response(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    captured_params: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_params.append(dict(request.url.params))
+        params = request.url.params
+        if params.get("after") == "100":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(i),
+                        "author": {"id": "1", "username": "a"},
+                        "content": f"msg{i}",
+                    }
+                    for i in range(200, 100, -1)
+                ],
+            )
+        if params.get("after") == "200":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "201",
+                        "author": {"id": "1", "username": "a"},
+                        "content": "last",
+                    },
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", limit=150, after="100")
+
+    assert captured_params[0]["after"] == "100"
+    assert captured_params[1]["after"] == "200"
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 101
+    ids = [m["id"] for m in output]
+    assert len(ids) == len(set(ids))
+
+
+@pytest.mark.asyncio
 async def test_read_channel_max_bytes_too_small_errors(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

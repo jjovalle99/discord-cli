@@ -137,12 +137,20 @@ async def read_channel(
     resolve_channels: bool = False,
     max_bytes: int | None = None,
     pinned: bool = False,
+    before: str | None = None,
+    after: str | None = None,
 ) -> None:
+    if before and after:
+        write_error(
+            "incompatible_flags",
+            "--before and --after are mutually exclusive",
+        )
+        raise SystemExit(1)
     if pinned:
-        if author or skip_system:
+        if author or skip_system or before or after:
             write_error(
                 "incompatible_flags",
-                "--pinned cannot be combined with --author or --skip-system",
+                "--pinned cannot be combined with --author, --skip-system, --before, or --after",
             )
             raise SystemExit(1)
         all_messages = await client.api_get_list(f"/channels/{channel_id}/pins")
@@ -153,6 +161,10 @@ async def read_channel(
         params: dict[str, str] = {
             "limit": str(100 if needs_client_filter else min(limit, 100))
         }
+        if before:
+            params["before"] = before
+        if after:
+            params["after"] = after
 
         while len(all_messages) < limit:
             batch = await client.api_get_list(
@@ -161,7 +173,6 @@ async def read_channel(
             if not batch:
                 break
 
-            cursor = batch[-1]["id"]
             page_exhausted = len(batch) < 100
 
             if needs_client_filter:
@@ -179,7 +190,10 @@ async def read_channel(
 
             if page_exhausted or (author and scanned >= _AUTHOR_SCAN_CAP):
                 break
-            params["before"] = cursor
+            if after:
+                params["after"] = max(batch, key=lambda m: int(m["id"]))["id"]
+            else:
+                params["before"] = batch[-1]["id"]
             if not needs_client_filter:
                 params["limit"] = str(min(limit - len(all_messages), 100))
 
