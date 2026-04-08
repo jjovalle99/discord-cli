@@ -240,7 +240,18 @@
 - 3 new tests (success output, invalid token with source, single API call assertion)
 - Edge case: `whoami` does not apply `X-Super-Properties` header (no `_get_client`) — acceptable since it only hits `/users/@me`
 
+## Issue #22: --flatten-embeds flag for readable embed content — DONE
+- `--flatten-embeds` on `read channel`, `read thread`, `read message`
+- Adds `embed_text` field to messages with non-empty embeds — newline-joined extraction of author.name, title, description, fields (name: value), footer.text
+- Multiple embeds separated by double newline (`\n\n`) for visual distinction
+- Original `embeds` array preserved for programmatic access
+- Text format (`--format text`) appends embed text after content with ` | ` separator
+- Defensive parsing: handles malformed embeds (null author/footer, non-dict fields, missing keys) via `isinstance` guards and `.get()` fallbacks
+- Extracted `_escape_newlines` helper to deduplicate newline escaping in text format
+- 6 new tests (embed text extraction, empty embed skip, read_message, text format, malformed embeds, full embed parts)
+- Edge case: `embed_text` adds to JSON payload size alongside `embeds` — users combining `--flatten-embeds` with `--max-bytes` may see fewer messages due to duplication (by design per issue spec: "Keep the original `embeds` array")
+
 ## Summary
-- 147 tests total, all gates pass (pytest, ruff, ty)
+- 153 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning

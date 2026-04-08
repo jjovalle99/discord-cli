@@ -118,6 +118,28 @@ _SYSTEM_MESSAGE_TYPES = frozenset(
     }
 )
 
+def _flatten_embed(embed: dict[str, Any]) -> str:
+    parts: list[str] = []
+    author = embed.get("author")
+    if isinstance(author, dict) and author.get("name"):
+        parts.append(author["name"])
+    if embed.get("title"):
+        parts.append(embed["title"])
+    if embed.get("description"):
+        parts.append(embed["description"])
+    for field in embed.get("fields") or []:
+        if not isinstance(field, dict):
+            continue
+        name = field.get("name", "")
+        value = field.get("value", "")
+        if name or value:
+            parts.append(f"{name}: {value}" if name else value)
+    footer = embed.get("footer")
+    if isinstance(footer, dict) and footer.get("text"):
+        parts.append(footer["text"])
+    return "\n".join(parts)
+
+
 _AUTHOR_KEEP_FIELDS = ("id", "username", "global_name")
 _AUTHOR_PROVENANCE_FIELDS = ("bot", "system")
 # Discord uses null vs absent to distinguish "reply to deleted message" from "not a reply"
@@ -177,6 +199,19 @@ def _resolve_mentions(msg: dict[str, Any]) -> dict[str, Any]:
     return msg
 
 
+def _apply_flatten_embeds(msg: dict[str, Any]) -> dict[str, Any]:
+    embeds = msg.get("embeds", [])
+    if not embeds:
+        return msg
+    parts = [_flatten_embed(e) for e in embeds]
+    text = "\n\n".join(p for p in parts if p)
+    if not text:
+        return msg
+    msg = dict(msg)
+    msg["embed_text"] = text
+    return msg
+
+
 def _resolve_channels(
     msg: dict[str, Any], channel_map: dict[str, str]
 ) -> dict[str, Any]:
@@ -197,6 +232,10 @@ def _resolve_channels(
     return msg
 
 
+def _escape_newlines(s: str) -> str:
+    return s.replace("\n", "\\n").replace("\r", "\\r")
+
+
 def _format_text_line(msg: dict[str, Any]) -> str:
     ts = msg.get("timestamp", "")
     if ts:
@@ -205,7 +244,11 @@ def _format_text_line(msg: dict[str, Any]) -> str:
     else:
         ts_str = "unknown"
     username = msg.get("author", {}).get("username", "unknown")
-    content = msg.get("content", "").replace("\n", "\\n").replace("\r", "\\r")
+    content = _escape_newlines(msg.get("content", ""))
+    embed_text = msg.get("embed_text", "")
+    if embed_text:
+        escaped = _escape_newlines(embed_text)
+        content = f"{content} | {escaped}" if content else f"| {escaped}"
     return f"[{ts_str}] {username}: {content}"
 
 
@@ -243,6 +286,7 @@ async def read_channel(
     skip_system: bool = False,
     resolve_channels: bool = False,
     resolve_mentions: bool = False,
+    flatten_embeds: bool = False,
     max_bytes: int | None = None,
     pinned: bool = False,
     before: str | None = None,
@@ -332,6 +376,8 @@ async def read_channel(
             result = [_resolve_channels(msg, channel_map) for msg in result]
     if resolve_mentions:
         result = [_resolve_mentions(msg) for msg in result]
+    if flatten_embeds:
+        result = [_apply_flatten_embeds(msg) for msg in result]
     if compact:
         result = [_compact_message(msg) for msg in result]
     if max_bytes is not None:
@@ -368,9 +414,12 @@ async def read_message(
     channel_id: str,
     message_id: str,
     compact: bool = False,
+    flatten_embeds: bool = False,
     format: Format = "json",
 ) -> None:
     msg = await client.api_get(f"/channels/{channel_id}/messages/{message_id}")
+    if flatten_embeds:
+        msg = _apply_flatten_embeds(msg)
     if compact:
         msg = _compact_message(msg)
     _write_output(msg, format)

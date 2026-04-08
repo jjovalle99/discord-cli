@@ -1636,3 +1636,134 @@ async def test_read_file_403_non_attachment_url(
 
     err = json.loads(capsys.readouterr().err)
     assert err["error"] == "download_failed"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_flatten_embeds_adds_embed_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "author": {"id": "1", "username": "bot"},
+            "content": "",
+            "embeds": [
+                {
+                    "title": "Deploy Status",
+                    "description": "Production deploy completed",
+                    "fields": [
+                        {"name": "Version", "value": "v1.2.3", "inline": True},
+                    ],
+                    "footer": {"text": "Deployed by CI"},
+                }
+            ],
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", flatten_embeds=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output[0]["embed_text"] == "Deploy Status\nProduction deploy completed\nVersion: v1.2.3\nDeployed by CI"
+    assert "embeds" in output[0]
+
+
+@pytest.mark.asyncio
+async def test_read_channel_flatten_embeds_skips_empty_embeds(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "author": {"id": "1", "username": "alice"},
+            "content": "hello",
+            "embeds": [],
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", flatten_embeds=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert "embed_text" not in output[0]
+
+
+@pytest.mark.asyncio
+async def test_read_message_flatten_embeds_adds_embed_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from discord_cli.commands.read import read_message
+
+    msg = {
+        "id": "100",
+        "content": "",
+        "author": {"id": "1", "username": "bot"},
+        "embeds": [
+            {"title": "Status", "description": "All systems go"},
+            {"title": "Metrics", "fields": [{"name": "CPU", "value": "42%"}]},
+        ],
+    }
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=msg))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_message(
+            client, channel_id="999", message_id="100", flatten_embeds=True
+        )
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["embed_text"] == "Status\nAll systems go\n\nMetrics\nCPU: 42%"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_flatten_embeds_text_format_appends_embed_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "100",
+            "author": {"id": "1", "username": "bot"},
+            "content": "",
+            "timestamp": "2026-04-01T21:41:00.000000+00:00",
+            "embeds": [
+                {"title": "Deploy", "description": "Done"},
+            ],
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(
+            client, channel_id="999", flatten_embeds=True, format="text"
+        )
+
+    line = capsys.readouterr().out.strip()
+    assert line == "[2026-04-01 21:41] bot: | Deploy\\nDone"
+
+
+def test_flatten_embed_handles_malformed_embeds() -> None:
+    from discord_cli.commands.read import _flatten_embed
+
+    assert _flatten_embed({"author": None, "footer": None, "fields": None}) == ""
+    assert _flatten_embed({"author": "not-a-dict", "footer": 42}) == ""
+    assert _flatten_embed({"fields": [None, "bad", {"name": "k", "value": "v"}]}) == "k: v"
+    assert _flatten_embed({"fields": [{"value": "only-val"}]}) == "only-val"
+    assert _flatten_embed({}) == ""
+
+
+def test_flatten_embed_extracts_all_text_parts() -> None:
+    from discord_cli.commands.read import _flatten_embed
+
+    embed = {
+        "title": "Deploy Status",
+        "description": "Production deploy completed",
+        "author": {"name": "CI Bot"},
+        "fields": [
+            {"name": "Version", "value": "v1.2.3", "inline": True},
+            {"name": "Duration", "value": "45s", "inline": True},
+        ],
+        "footer": {"text": "Deployed by CI"},
+    }
+    result = _flatten_embed(embed)
+    assert result == "CI Bot\nDeploy Status\nProduction deploy completed\nVersion: v1.2.3\nDuration: 45s\nDeployed by CI"
