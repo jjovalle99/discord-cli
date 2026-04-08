@@ -6,6 +6,8 @@ import httpx
 
 BASE_URL = "https://discord.com/api/v10"
 _ALLOWED_HOSTS = ("cdn.discordapp.com", "media.discordapp.net")
+_MAX_RETRIES = 5
+_MAX_RETRY_DELAY = 60
 
 
 class DiscordAPIError(Exception):
@@ -41,22 +43,51 @@ class DiscordClient:
             cdn_kwargs["transport"] = cdn_transport
         self._http = httpx.AsyncClient(**api_kwargs)
         self._cdn = httpx.AsyncClient(**cdn_kwargs)
+        self._total_retries = 0
+        self._min_remaining: int | None = None
+        self._max_reset_after: float | None = None
 
     async def _request(
         self, path: str, params: dict[str, str] | None = None
     ) -> httpx.Response:
         response = await self._http.get(path, params=params)
 
-        if response.status_code == 429:
-            retry_after = min(float(response.json().get("retry_after", 1)), 60)
-            print(f"Rate limited. Waiting {retry_after}s...", file=sys.stderr)
+        retries = 0
+        while response.status_code == 429 and retries < _MAX_RETRIES:
+            retry_after = min(float(response.json().get("retry_after", 1)), _MAX_RETRY_DELAY)
+            print(f"[rate-limit] 429 on GET {path} — retrying in {retry_after}s", file=sys.stderr)
             await asyncio.sleep(retry_after)
+            retries += 1
             response = await self._http.get(path, params=params)
+
+        self._total_retries += retries
+        self._update_rate_limit_headers(response)
 
         if response.status_code >= 400:
             raise DiscordAPIError(response.status_code, response.json())
 
         return response
+
+    def _update_rate_limit_headers(self, response: httpx.Response) -> None:
+        remaining = response.headers.get("X-RateLimit-Remaining")
+        if remaining is not None:
+            val = int(remaining)
+            if self._min_remaining is None or val < self._min_remaining:
+                self._min_remaining = val
+        reset_after = response.headers.get("X-RateLimit-Reset-After")
+        if reset_after is not None:
+            val_f = float(reset_after)
+            if self._max_reset_after is None or val_f > self._max_reset_after:
+                self._max_reset_after = val_f
+
+    @property
+    def rate_limit_stats(self) -> dict[str, Any]:
+        stats: dict[str, Any] = {"retries": self._total_retries}
+        if self._min_remaining is not None:
+            stats["remaining"] = self._min_remaining
+        if self._max_reset_after is not None:
+            stats["reset_after"] = self._max_reset_after
+        return stats
 
     async def api_get(
         self, path: str, params: dict[str, str] | None = None

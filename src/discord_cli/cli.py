@@ -1,7 +1,9 @@
 import asyncio
+import io
+import json
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, redirect_stdout
 from typing import Annotated
 
 import cyclopts
@@ -100,20 +102,44 @@ def _run(
     transport: httpx.AsyncBaseTransport | None = None,
     cache_ttl: int = 0,
     no_cache: bool = False,
+    rate_limit_info: bool = False,
 ) -> None:
     resolved = resolve_token(flag_token=token, config_path=DEFAULT_CONFIG_PATH)
+    captured_client: DiscordClient | None = None
 
     async def _inner() -> None:
+        nonlocal captured_client
         async with _get_client(resolved, transport=transport) as client:
+            captured_client = client
             await fn(client)
 
-    run_with_cache(
-        lambda: _run_with_error_handling(lambda: asyncio.run(_inner())),
-        argv=sys.argv,
-        cache_ttl=cache_ttl,
-        no_cache=no_cache,
-        token=resolved,
-    )
+    def _execute() -> None:
+        _run_with_error_handling(lambda: asyncio.run(_inner()))
+
+    if rate_limit_info:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _execute()
+        raw = buf.getvalue()
+        if raw.strip() and captured_client is not None:
+            stats = captured_client.rate_limit_stats
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                sys.stdout.write(raw)
+                print(json.dumps({"_rate_limit": stats}), file=sys.stderr)
+                return
+            print(json.dumps({"data": data, "_rate_limit": stats}, indent=2))
+        elif raw:
+            sys.stdout.write(raw)
+    else:
+        run_with_cache(
+            _execute,
+            argv=sys.argv,
+            cache_ttl=cache_ttl,
+            no_cache=no_cache,
+            token=resolved,
+        )
 
 
 @search_app.command(name="messages")
@@ -129,6 +155,7 @@ def search_messages_cmd(
     sort_order: str = "desc",
     offset: int = 0,
     fallback_read: bool = False,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
@@ -151,6 +178,7 @@ def search_messages_cmd(
         token,
         cache_ttl=cache_ttl,
         no_cache=no_cache,
+        rate_limit_info=rate_limit_info,
     )
 
 
@@ -161,6 +189,7 @@ def search_dms_cmd(
     *,
     limit: int = 25,
     fallback_read: bool = False,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
@@ -177,6 +206,7 @@ def search_dms_cmd(
         token,
         cache_ttl=cache_ttl,
         no_cache=no_cache,
+        rate_limit_info=rate_limit_info,
     )
 
 
@@ -184,35 +214,38 @@ def search_dms_cmd(
 def list_servers_cmd(
     *,
     limit: int = 200,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """List all servers the user is in."""
-    _run(lambda c: list_servers(c, limit=limit), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: list_servers(c, limit=limit), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @list_app.command(name="channels")
 def list_channels_cmd(
     guild_id: str,
     *,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """List all channels in a server."""
-    _run(lambda c: list_channels(c, guild_id=guild_id), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: list_channels(c, guild_id=guild_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @list_app.command(name="dms")
 def list_dms_cmd(
     *,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """List open DM conversations."""
-    _run(lambda c: list_dms(c), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: list_dms(c), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @list_app.command(name="members")
@@ -221,24 +254,26 @@ def list_members_cmd(
     *,
     role: str | None = None,
     limit: int = 1000,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """List members in a server."""
-    _run(lambda c: list_members(c, guild_id=guild_id, limit=limit, role=role), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: list_members(c, guild_id=guild_id, limit=limit, role=role), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @list_app.command(name="threads")
 def list_threads_cmd(
     channel_id: str,
     *,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """List threads in a channel (archived + active from recent messages)."""
-    _run(lambda c: list_threads(c, channel_id=channel_id), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: list_threads(c, channel_id=channel_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @read_app.command(name="channel")
@@ -258,6 +293,7 @@ def read_channel_cmd(
     since: str | None = None,
     chronological: bool = False,
     format: Format = "json",
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
@@ -284,6 +320,7 @@ def read_channel_cmd(
         token,
         cache_ttl=cache_ttl,
         no_cache=no_cache,
+        rate_limit_info=rate_limit_info,
     )
 
 
@@ -304,6 +341,7 @@ def read_thread_cmd(
     since: str | None = None,
     chronological: bool = False,
     format: Format = "json",
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
@@ -330,6 +368,7 @@ def read_thread_cmd(
         token,
         cache_ttl=cache_ttl,
         no_cache=no_cache,
+        rate_limit_info=rate_limit_info,
     )
 
 
@@ -340,6 +379,7 @@ def read_message_cmd(
     *,
     compact: bool = False,
     format: Format = "json",
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
@@ -356,6 +396,7 @@ def read_message_cmd(
         token,
         cache_ttl=cache_ttl,
         no_cache=no_cache,
+        rate_limit_info=rate_limit_info,
     )
 
 
@@ -363,36 +404,39 @@ def read_message_cmd(
 def read_server_info_cmd(
     guild_id: str,
     *,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch server metadata."""
-    _run(lambda c: read_server_info(c, guild_id=guild_id), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: read_server_info(c, guild_id=guild_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @read_app.command(name="channel-info")
 def read_channel_info_cmd(
     channel_id: str,
     *,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch channel metadata."""
-    _run(lambda c: read_channel_info(c, channel_id=channel_id), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: read_channel_info(c, channel_id=channel_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @read_app.command(name="user")
 def read_user_cmd(
     user_id: str,
     *,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch a user's profile."""
-    _run(lambda c: read_user(c, user_id=user_id), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: read_user(c, user_id=user_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @read_app.command(name="member")
@@ -400,12 +444,13 @@ def read_member_cmd(
     guild_id: str,
     user_id: str,
     *,
+    rate_limit_info: bool = False,
     cache_ttl: int = 0,
     no_cache: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch a member's server-specific profile."""
-    _run(lambda c: read_member(c, guild_id=guild_id, user_id=user_id), token, cache_ttl=cache_ttl, no_cache=no_cache)
+    _run(lambda c: read_member(c, guild_id=guild_id, user_id=user_id), token, cache_ttl=cache_ttl, no_cache=no_cache, rate_limit_info=rate_limit_info)
 
 
 @read_app.command(name="file")
