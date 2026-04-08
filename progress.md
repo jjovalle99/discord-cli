@@ -186,7 +186,14 @@
 - Edge case: active thread discovery limited to threads whose starter message is within the last 100 parent-channel messages
 - Edge case: private archived threads return empty on servers where user lacks `MANAGE_THREADS`
 
+## Issue #17: --channel filter on search messages — DONE
+- Renamed CLI flag from `--channel-id` to `--channel` on `search messages` for consistency with other commands (`read file --channel`)
+- `--channel-id` preserved as backwards-compatible alias via `cyclopts.Parameter(name=["--channel", "--channel-id"])`
+- Updated user-facing strings (error messages, search note) to reference `--channel`
+- 2 new tests (parametrized CLI-level test covering both `--channel` and `--channel-id` flag acceptance)
+- Edge case: existing scripts using `--channel-id` continue to work without changes
+
 ## Summary
-- 122 tests total, all gates pass (pytest, ruff, ty)
+- 124 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
