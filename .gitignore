@@ -4,3 +4,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.vscode/
+
+CLAUDE.md
+progress.md
+SPEC.md
