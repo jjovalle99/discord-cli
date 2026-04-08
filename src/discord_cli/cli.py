@@ -187,11 +187,14 @@ def read_channel_cmd(
     *,
     limit: int = 50,
     compact: bool = False,
+    author: str | None = None,
     token: str | None = None,
 ) -> None:
     """Fetch message history of a channel or thread."""
     _run(
-        lambda c: read_channel(c, channel_id=channel_id, limit=limit, compact=compact),
+        lambda c: read_channel(
+            c, channel_id=channel_id, limit=limit, compact=compact, author=author
+        ),
         token,
     )
 
@@ -202,11 +205,14 @@ def read_thread_cmd(
     *,
     limit: int = 50,
     compact: bool = False,
+    author: str | None = None,
     token: str | None = None,
 ) -> None:
     """Fetch messages in a thread (alias for read channel)."""
     _run(
-        lambda c: read_channel(c, channel_id=thread_id, limit=limit, compact=compact),
+        lambda c: read_channel(
+            c, channel_id=thread_id, limit=limit, compact=compact, author=author
+        ),
         token,
     )
 

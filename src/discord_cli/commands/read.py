@@ -4,6 +4,8 @@ from discord_cli.client import DiscordClient
 from discord_cli.output import write_success
 
 
+_AUTHOR_SCAN_CAP = 500
+
 _AUTHOR_KEEP_FIELDS = ("id", "username", "global_name")
 _AUTHOR_PROVENANCE_FIELDS = ("bot", "system")
 # Discord uses null vs absent to distinguish "reply to deleted message" from "not a reply"
@@ -26,10 +28,16 @@ def _compact_message(msg: dict[str, Any]) -> dict[str, Any]:
 
 
 async def read_channel(
-    client: DiscordClient, *, channel_id: str, limit: int = 50, compact: bool = False
+    client: DiscordClient,
+    *,
+    channel_id: str,
+    limit: int = 50,
+    compact: bool = False,
+    author: str | None = None,
 ) -> None:
     all_messages: list[dict[str, Any]] = []
-    params: dict[str, str] = {"limit": str(min(limit, 100))}
+    scanned = 0
+    params: dict[str, str] = {"limit": str(100 if author else min(limit, 100))}
 
     while len(all_messages) < limit:
         batch = await client.api_get_list(
@@ -37,11 +45,22 @@ async def read_channel(
         )
         if not batch:
             break
-        all_messages.extend(batch)
-        if len(batch) < 100:
+
+        cursor = batch[-1]["id"]
+        page_exhausted = len(batch) < 100
+
+        if author:
+            scanned += len(batch)
+            filtered = [m for m in batch if m["author"]["id"] == author]
+            all_messages.extend(filtered)
+        else:
+            all_messages.extend(batch)
+
+        if page_exhausted or (author and scanned >= _AUTHOR_SCAN_CAP):
             break
-        params["before"] = batch[-1]["id"]
-        params["limit"] = str(min(limit - len(all_messages), 100))
+        params["before"] = cursor
+        if not author:
+            params["limit"] = str(min(limit - len(all_messages), 100))
 
     result = all_messages[:limit]
     if compact:
