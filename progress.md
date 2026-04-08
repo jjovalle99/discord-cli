@@ -150,7 +150,18 @@
 - 4 new tests (role resolution, role filter, pagination with cursor, cross-page role scanning)
 - Edge case: `GET /guilds/{id}/members` returns 403 for user accounts on most servers (Discord API limitation for non-bot tokens). Surfaced as structured error via existing `DiscordAPIError` handler.
 
+## Issue #14: --format text|jsonl output modes — DONE
+- `--format text` on `read channel`, `read thread`, `read message`
+- Outputs one line per message: `[YYYY-MM-DD HH:MM] username: content`
+- Newlines and carriage returns in content escaped as `\n`/`\r` to preserve one-line-per-message invariant
+- `--format jsonl` on the same commands — one JSON object per line, no indentation
+- `--format json` (default) — existing behavior unchanged
+- `--max-bytes` works correctly with all formats: text/jsonl use incremental size subtraction (O(N)), JSON uses envelope-based truncation
+- `Format` type alias (`Literal["json", "jsonl", "text"]`) for compile-time validation
+- 6 new tests (text formatting, text output, jsonl output, single message text, newline escaping, text+max_bytes truncation)
+- Edge case: multiline Discord messages (code blocks, etc.) collapse to single output line in text mode — content preserved via escaping
+
 ## Summary
-- 104 tests total, all gates pass (pytest, ruff, ty)
+- 110 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts (Discord API limitation)
