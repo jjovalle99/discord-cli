@@ -854,6 +854,70 @@ async def test_read_channel_max_bytes_with_compact(
 
 
 @pytest.mark.asyncio
+async def test_read_channel_pinned_calls_pins_endpoint(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pinned_messages = [
+        {
+            "id": "200",
+            "author": {"id": "1", "username": "alice"},
+            "content": "important announcement",
+            "type": 0,
+            "pinned": True,
+        },
+        {
+            "id": "100",
+            "author": {"id": "2", "username": "bob"},
+            "content": "server rules",
+            "type": 0,
+            "pinned": True,
+        },
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/channels/999/pins":
+            return httpx.Response(200, json=pinned_messages)
+        if "/messages" in request.url.path:
+            return httpx.Response(200, json=[])
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", pinned=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert len(output) == 2
+    assert output[0]["content"] == "important announcement"
+    assert output[1]["content"] == "server rules"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_pinned_rejects_incompatible_filters(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=[]))
+    async with DiscordClient(token="t", transport=transport) as client:
+        with pytest.raises(SystemExit, match="1"):
+            await read_channel(client, channel_id="999", pinned=True, author="u1")
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "incompatible_flags"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_pinned_rejects_skip_system(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=[]))
+    async with DiscordClient(token="t", transport=transport) as client:
+        with pytest.raises(SystemExit, match="1"):
+            await read_channel(client, channel_id="999", pinned=True, skip_system=True)
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "incompatible_flags"
+
+
+@pytest.mark.asyncio
 async def test_read_channel_max_bytes_too_small_errors(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

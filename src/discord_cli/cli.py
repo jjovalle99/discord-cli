@@ -191,6 +191,7 @@ def read_channel_cmd(
     skip_system: bool = False,
     resolve_channels: bool = False,
     max_bytes: int | None = None,
+    pinned: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch message history of a channel or thread."""
@@ -204,6 +205,7 @@ def read_channel_cmd(
             skip_system=skip_system,
             resolve_channels=resolve_channels,
             max_bytes=max_bytes,
+            pinned=pinned,
         ),
         token,
     )
@@ -219,6 +221,7 @@ def read_thread_cmd(
     skip_system: bool = False,
     resolve_channels: bool = False,
     max_bytes: int | None = None,
+    pinned: bool = False,
     token: str | None = None,
 ) -> None:
     """Fetch messages in a thread (alias for read channel)."""
@@ -232,6 +235,7 @@ def read_thread_cmd(
             skip_system=skip_system,
             resolve_channels=resolve_channels,
             max_bytes=max_bytes,
+            pinned=pinned,
         ),
         token,
     )

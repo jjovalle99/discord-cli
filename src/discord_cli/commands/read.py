@@ -136,42 +136,52 @@ async def read_channel(
     skip_system: bool = False,
     resolve_channels: bool = False,
     max_bytes: int | None = None,
+    pinned: bool = False,
 ) -> None:
-    all_messages: list[dict[str, Any]] = []
-    scanned = 0
-    needs_client_filter = bool(author) or skip_system
-    params: dict[str, str] = {
-        "limit": str(100 if needs_client_filter else min(limit, 100))
-    }
+    if pinned:
+        if author or skip_system:
+            write_error(
+                "incompatible_flags",
+                "--pinned cannot be combined with --author or --skip-system",
+            )
+            raise SystemExit(1)
+        all_messages = await client.api_get_list(f"/channels/{channel_id}/pins")
+    else:
+        all_messages = []
+        scanned = 0
+        needs_client_filter = bool(author) or skip_system
+        params: dict[str, str] = {
+            "limit": str(100 if needs_client_filter else min(limit, 100))
+        }
 
-    while len(all_messages) < limit:
-        batch = await client.api_get_list(
-            f"/channels/{channel_id}/messages", params=params
-        )
-        if not batch:
-            break
+        while len(all_messages) < limit:
+            batch = await client.api_get_list(
+                f"/channels/{channel_id}/messages", params=params
+            )
+            if not batch:
+                break
 
-        cursor = batch[-1]["id"]
-        page_exhausted = len(batch) < 100
+            cursor = batch[-1]["id"]
+            page_exhausted = len(batch) < 100
 
-        if needs_client_filter:
-            if author:
-                scanned += len(batch)
-            filtered = [
-                m
-                for m in batch
-                if (not skip_system or m["type"] not in _SYSTEM_MESSAGE_TYPES)
-                and (not author or m["author"]["id"] == author)
-            ]
-            all_messages.extend(filtered)
-        else:
-            all_messages.extend(batch)
+            if needs_client_filter:
+                if author:
+                    scanned += len(batch)
+                filtered = [
+                    m
+                    for m in batch
+                    if (not skip_system or m["type"] not in _SYSTEM_MESSAGE_TYPES)
+                    and (not author or m["author"]["id"] == author)
+                ]
+                all_messages.extend(filtered)
+            else:
+                all_messages.extend(batch)
 
-        if page_exhausted or (author and scanned >= _AUTHOR_SCAN_CAP):
-            break
-        params["before"] = cursor
-        if not needs_client_filter:
-            params["limit"] = str(min(limit - len(all_messages), 100))
+            if page_exhausted or (author and scanned >= _AUTHOR_SCAN_CAP):
+                break
+            params["before"] = cursor
+            if not needs_client_filter:
+                params["limit"] = str(min(limit - len(all_messages), 100))
 
     result = all_messages[:limit]
     if resolve_channels:
