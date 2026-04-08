@@ -762,3 +762,114 @@ async def test_read_channel_resolve_channels_degrades_on_api_error(
     assert len(output) == 1
     assert "channel_name" not in output[0]
     assert output[0]["content"] == "Check <#888> for info"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_max_bytes_truncates_older_messages(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": str(i),
+            "author": {"id": "1", "username": "alice"},
+            "content": f"message number {i}",
+            "type": 0,
+        }
+        for i in range(10, 0, -1)
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", limit=10, max_bytes=500)
+
+    captured = capsys.readouterr()
+    assert len(captured.out.encode()) <= 500
+    output = json.loads(captured.out)
+    assert output["truncated"] is True
+    assert output["messages_available"] == 10
+    assert output["messages_returned"] < 10
+    assert len(output["messages"]) == output["messages_returned"]
+
+
+@pytest.mark.asyncio
+async def test_read_channel_max_bytes_no_envelope_when_fits(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "1",
+            "author": {"id": "1", "username": "alice"},
+            "content": "hi",
+            "type": 0,
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", limit=10, max_bytes=50000)
+
+    output = json.loads(capsys.readouterr().out)
+    assert isinstance(output, list)
+    assert len(output) == 1
+    assert output[0]["content"] == "hi"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_max_bytes_with_compact(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": str(i),
+            "author": {
+                "id": "1",
+                "username": "alice",
+                "global_name": "Alice",
+                "avatar": "abc123",
+                "discriminator": "0",
+            },
+            "content": f"message number {i}",
+            "edited_timestamp": None,
+            "type": 0,
+            "pinned": False,
+            "thread": None,
+        }
+        for i in range(10, 0, -1)
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(
+            client, channel_id="999", limit=10, compact=True, max_bytes=500
+        )
+
+    captured = capsys.readouterr()
+    assert len(captured.out.encode()) <= 500
+    output = json.loads(captured.out)
+    assert output["truncated"] is True
+    for msg in output["messages"]:
+        assert "edited_timestamp" not in msg
+        assert "thread" not in msg
+        assert "avatar" not in msg.get("author", {})
+
+
+@pytest.mark.asyncio
+async def test_read_channel_max_bytes_too_small_errors(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "1",
+            "author": {"id": "1", "username": "alice"},
+            "content": "hi",
+            "type": 0,
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        with pytest.raises(SystemExit, match="1"):
+            await read_channel(client, channel_id="999", limit=10, max_bytes=10)
+
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "max_bytes_too_small"

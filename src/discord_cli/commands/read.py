@@ -1,8 +1,32 @@
+import json
 import re
 from typing import Any
 
 from discord_cli.client import DiscordClient
-from discord_cli.output import write_success
+from discord_cli.output import write_error, write_success
+
+
+def _stdout_size(data: list[dict[str, Any]] | dict[str, Any]) -> int:
+    return len(json.dumps(data, indent=2).encode()) + 1
+
+
+def _truncate_to_fit(
+    messages: list[dict[str, Any]], max_bytes: int, total_available: int
+) -> dict[str, Any] | None:
+    kept = list(messages)
+    while True:
+        envelope: dict[str, Any] = {
+            "truncated": len(kept) < total_available,
+            "messages_returned": len(kept),
+            "messages_available": total_available,
+            "messages": kept,
+        }
+        if _stdout_size(envelope) <= max_bytes:
+            return envelope
+        if not kept:
+            return None
+        kept.pop()
+
 
 _CHANNEL_MENTION_RE = re.compile(r"<#(\d+)>")
 
@@ -111,6 +135,7 @@ async def read_channel(
     author: str | None = None,
     skip_system: bool = False,
     resolve_channels: bool = False,
+    max_bytes: int | None = None,
 ) -> None:
     all_messages: list[dict[str, Any]] = []
     scanned = 0
@@ -158,6 +183,17 @@ async def read_channel(
             result = [_resolve_channels(msg, channel_map) for msg in result]
     if compact:
         result = [_compact_message(msg) for msg in result]
+    if max_bytes is not None:
+        if _stdout_size(result) > max_bytes:
+            envelope = _truncate_to_fit(result, max_bytes, len(result))
+            if envelope is None:
+                write_error(
+                    "max_bytes_too_small",
+                    f"--max-bytes {max_bytes} is too small for even an empty response",
+                )
+                raise SystemExit(1)
+            write_success(envelope)
+            return
     write_success(result)
 
 
