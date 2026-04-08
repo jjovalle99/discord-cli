@@ -11,7 +11,8 @@ def test_resolve_token_prefers_flag(
 ) -> None:
     monkeypatch.delenv("DISCORD_TOKEN", raising=False)
     result = resolve_token(flag_token="flag-tok", config_path=tmp_path / "nope.json")
-    assert result == "flag-tok"
+    assert result.value == "flag-tok"
+    assert result.source == "flag"
 
 
 def test_resolve_token_falls_back_to_env(
@@ -19,7 +20,8 @@ def test_resolve_token_falls_back_to_env(
 ) -> None:
     monkeypatch.setenv("DISCORD_TOKEN", "env-tok")
     result = resolve_token(flag_token=None, config_path=tmp_path / "nope.json")
-    assert result == "env-tok"
+    assert result.value == "env-tok"
+    assert result.source == "environment_variable"
 
 
 def test_resolve_token_falls_back_to_keyring(
@@ -28,7 +30,8 @@ def test_resolve_token_falls_back_to_keyring(
     monkeypatch.delenv("DISCORD_TOKEN", raising=False)
     with patch("discord_cli.tokens.load_token", return_value="keyring-tok"):
         result = resolve_token(flag_token=None, config_path=tmp_path / "nope.json")
-    assert result == "keyring-tok"
+    assert result.value == "keyring-tok"
+    assert result.source == "keyring"
 
 
 def test_resolve_token_falls_back_to_config(
@@ -41,7 +44,8 @@ def test_resolve_token_falls_back_to_config(
     save_config(token="cfg-tok", username="u", config_path=config_path)
     with patch("discord_cli.tokens.load_token", return_value=None):
         result = resolve_token(flag_token=None, config_path=config_path)
-    assert result == "cfg-tok"
+    assert result.value == "cfg-tok"
+    assert result.source == "config_file"
 
 
 def test_resolve_token_config_beats_stale_keyring(
@@ -54,7 +58,8 @@ def test_resolve_token_config_beats_stale_keyring(
     save_config(token="new-config-tok", username="u", config_path=config_path)
     with patch("discord_cli.tokens.load_token", return_value="stale-keyring-tok"):
         result = resolve_token(flag_token=None, config_path=config_path)
-    assert result == "new-config-tok"
+    assert result.value == "new-config-tok"
+    assert result.source == "config_file"
 
 
 def test_resolve_token_raises_when_missing(

@@ -77,6 +77,26 @@ def auth() -> None:
     _run_with_error_handling(lambda: asyncio.run(run_auth()))
 
 
+@app.command
+def whoami(
+    *,
+    token: str | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> None:
+    """Show which user is authenticated and how the token was resolved."""
+    from discord_cli.commands.whoami import whoami as _whoami
+
+    resolved = resolve_token(flag_token=token, config_path=DEFAULT_CONFIG_PATH)
+
+    async def _inner() -> None:
+        async with DiscordClient(
+            token=resolved.value, transport=transport
+        ) as client:
+            await _whoami(client, token_source=resolved.source)
+
+    _run_with_error_handling(lambda: asyncio.run(_inner()))
+
+
 @asynccontextmanager
 async def _get_client(
     token: str,
@@ -109,7 +129,7 @@ def _run(
 
     async def _inner() -> None:
         nonlocal captured_client
-        async with _get_client(resolved, transport=transport) as client:
+        async with _get_client(resolved.value, transport=transport) as client:
             captured_client = client
             await fn(client)
 
@@ -138,7 +158,7 @@ def _run(
             argv=sys.argv,
             cache_ttl=cache_ttl,
             no_cache=no_cache,
-            token=resolved,
+            token=resolved.value,
         )
 
 
