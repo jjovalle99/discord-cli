@@ -29,6 +29,9 @@ def _truncate_to_fit(
 
 
 _CHANNEL_MENTION_RE = re.compile(r"<#(\d+)>")
+_USER_MENTION_PAT = r"<@!?(\d+)>"
+_USER_MENTION_RE = re.compile(_USER_MENTION_PAT)
+_CODE_OR_MENTION_RE = re.compile(rf"```[\s\S]*?```|`[^`]+`|{_USER_MENTION_PAT}")
 
 
 _AUTHOR_SCAN_CAP = 500
@@ -106,6 +109,29 @@ async def _build_channel_map(client: DiscordClient, channel_id: str) -> dict[str
     return result
 
 
+def _replace_mentions_outside_code(content: str, mention_map: dict[str, str]) -> str:
+    def _replacer(m: re.Match[str]) -> str:
+        uid = m.group(1)
+        if uid and uid in mention_map:
+            return f"@{mention_map[uid]}"
+        return m.group(0)
+
+    return _CODE_OR_MENTION_RE.sub(_replacer, content)
+
+
+def _resolve_mentions(msg: dict[str, Any]) -> dict[str, Any]:
+    mentions = msg.get("mentions", [])
+    if not mentions:
+        return msg
+    content = msg.get("content", "")
+    if not content:
+        return msg
+    mention_map = {m["id"]: m["username"] for m in mentions}
+    msg = dict(msg)
+    msg["content"] = _replace_mentions_outside_code(content, mention_map)
+    return msg
+
+
 def _resolve_channels(
     msg: dict[str, Any], channel_map: dict[str, str]
 ) -> dict[str, Any]:
@@ -135,6 +161,7 @@ async def read_channel(
     author: str | None = None,
     skip_system: bool = False,
     resolve_channels: bool = False,
+    resolve_mentions: bool = False,
     max_bytes: int | None = None,
     pinned: bool = False,
     before: str | None = None,
@@ -205,6 +232,8 @@ async def read_channel(
             channel_map = {}
         if channel_map:
             result = [_resolve_channels(msg, channel_map) for msg in result]
+    if resolve_mentions:
+        result = [_resolve_mentions(msg) for msg in result]
     if compact:
         result = [_compact_message(msg) for msg in result]
     if max_bytes is not None:

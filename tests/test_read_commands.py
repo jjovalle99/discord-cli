@@ -1078,3 +1078,78 @@ async def test_read_channel_max_bytes_too_small_errors(
 
     err = json.loads(capsys.readouterr().err)
     assert err["error"] == "max_bytes_too_small"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_resolve_mentions_replaces_known_and_preserves_unknown(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "1",
+            "author": {"id": "10", "username": "sender"},
+            "content": "Hello <@200> and <@999>!",
+            "type": 0,
+            "mentions": [
+                {"id": "200", "username": "alice", "global_name": "Alice A"},
+            ],
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", resolve_mentions=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output[0]["content"] == "Hello @alice and <@999>!"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_resolve_mentions_handles_nick_prefix_format(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "1",
+            "author": {"id": "10", "username": "sender"},
+            "content": "cc <@!300>",
+            "type": 0,
+            "mentions": [
+                {"id": "300", "username": "bob", "global_name": "Bob B"},
+            ],
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", resolve_mentions=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output[0]["content"] == "cc @bob"
+
+
+@pytest.mark.asyncio
+async def test_read_channel_resolve_mentions_preserves_code_spans(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = [
+        {
+            "id": "1",
+            "author": {"id": "10", "username": "sender"},
+            "content": "Hey <@200>, use `<@200>` to mention and ```<@200>``` in blocks",
+            "type": 0,
+            "mentions": [
+                {"id": "200", "username": "alice", "global_name": "Alice"},
+            ],
+        }
+    ]
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=messages))
+    async with DiscordClient(token="t", transport=transport) as client:
+        await read_channel(client, channel_id="999", resolve_mentions=True)
+
+    output = json.loads(capsys.readouterr().out)
+    assert (
+        output[0]["content"]
+        == "Hey @alice, use `<@200>` to mention and ```<@200>``` in blocks"
+    )
