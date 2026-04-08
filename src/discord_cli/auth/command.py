@@ -10,6 +10,7 @@ from discord_cli.auth.extract import extract_token_from_leveldb
 from discord_cli.auth.keychain import get_macos_password
 from discord_cli.client import DiscordClient
 from discord_cli.config import DEFAULT_CONFIG_PATH, save_config
+from discord_cli.credential import store_token
 from discord_cli.output import write_success
 from discord_cli.validation import validate_token
 
@@ -80,7 +81,15 @@ async def run_auth(
         user_info = await validate_token(client)
 
     username = user_info.get("username", "unknown")
-    save_config(token=token, username=username, config_path=config_path)
+
+    if store_token(token):
+        save_config(username=username, config_path=config_path)
+    else:
+        print(
+            "Warning: no system keyring available, storing token in plaintext config file",
+            file=sys.stderr,
+        )
+        save_config(token=token, username=username, config_path=config_path)
 
     print(f"Authenticated as {username}", file=sys.stderr)
     write_success({"id": user_info.get("id"), "username": username})

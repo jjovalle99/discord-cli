@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -21,6 +22,15 @@ def test_resolve_token_falls_back_to_env(
     assert result == "env-tok"
 
 
+def test_resolve_token_falls_back_to_keyring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
+    with patch("discord_cli.tokens.load_token", return_value="keyring-tok"):
+        result = resolve_token(flag_token=None, config_path=tmp_path / "nope.json")
+    assert result == "keyring-tok"
+
+
 def test_resolve_token_falls_back_to_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -29,13 +39,28 @@ def test_resolve_token_falls_back_to_config(
     monkeypatch.delenv("DISCORD_TOKEN", raising=False)
     config_path = tmp_path / "config.json"
     save_config(token="cfg-tok", username="u", config_path=config_path)
-    result = resolve_token(flag_token=None, config_path=config_path)
+    with patch("discord_cli.tokens.load_token", return_value=None):
+        result = resolve_token(flag_token=None, config_path=config_path)
     assert result == "cfg-tok"
+
+
+def test_resolve_token_config_beats_stale_keyring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from discord_cli.config import save_config
+
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
+    config_path = tmp_path / "config.json"
+    save_config(token="new-config-tok", username="u", config_path=config_path)
+    with patch("discord_cli.tokens.load_token", return_value="stale-keyring-tok"):
+        result = resolve_token(flag_token=None, config_path=config_path)
+    assert result == "new-config-tok"
 
 
 def test_resolve_token_raises_when_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("DISCORD_TOKEN", raising=False)
-    with pytest.raises(SystemExit):
-        resolve_token(flag_token=None, config_path=tmp_path / "nope.json")
+    with patch("discord_cli.tokens.load_token", return_value=None):
+        with pytest.raises(SystemExit):
+            resolve_token(flag_token=None, config_path=tmp_path / "nope.json")

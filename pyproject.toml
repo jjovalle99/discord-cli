@@ -12,6 +12,7 @@ dependencies = [
     "cryptography>=46.0.6",
     "cyclopts>=3.0",
     "httpx>=0.28",
+    "keyring>=25.7.0",
 ]
 
 [tool.uv.sources]

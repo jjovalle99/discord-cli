@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from discord_cli.config import DEFAULT_CONFIG_PATH, load_config
+from discord_cli.credential import load_token
 
 
 def resolve_token(
@@ -18,6 +19,10 @@ def resolve_token(
     token = config.get("token")
     if token:
         return token
+
+    keyring_token = load_token()
+    if keyring_token:
+        return keyring_token
 
     msg = "No token found. Run 'discord-cli auth', set DISCORD_TOKEN, or pass --token."
     raise SystemExit(msg)

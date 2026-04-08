@@ -207,7 +207,19 @@
 - Edge case: `--no-cache` with `cache_ttl=0` is a silent no-op (caching already disabled)
 - Edge case: cache entries scoped by resolved token — switching accounts invalidates cache
 
+## Issue #19: encrypt stored token instead of plaintext — DONE
+- Token stored in system keyring (macOS Keychain / Linux SecretService) via `keyring` library instead of plaintext config.json
+- `credential.py` module wraps `keyring.set_password`/`keyring.get_password` with graceful `KeyringError` fallback
+- `run_auth()` tries keyring first; falls back to plaintext config.json with stderr warning when no keyring available
+- `save_config()` now accepts optional `token` param — omitted when keyring storage succeeds
+- `resolve_token()` priority chain: `--token` > `DISCORD_TOKEN` env > config file > keyring — config before keyring prevents stale keyring entries from overriding fresh fallback tokens
+- `keyring` library uses native APIs (no subprocess argv exposure for tokens)
+- `--token` flag and `DISCORD_TOKEN` env var continue to work as overrides
+- 4 new credential tests (store, load, store error, load error), 2 new auth tests (keyring success, plaintext fallback), 2 new token resolution tests (keyring fallback, config-beats-stale-keyring)
+- Edge case: when keyring store fails and then succeeds again later, config file token takes priority (prevents stale keyring from shadowing fresh config token)
+- Edge case: systems without a keyring backend (headless Linux, CI) degrade to plaintext with a warning
+
 ## Summary
-- 129 tests total, all gates pass (pytest, ruff, ty)
+- 137 tests total, all gates pass (pytest, ruff, ty)
 - All SPEC.md steps implemented
 - Edge case: active threads not listable by user accounts via guild endpoint (Discord API limitation), but now discoverable via archived endpoints + message scanning
