@@ -12,7 +12,7 @@ async def test_whoami_returns_user_info_with_source(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     user_data = {
-        "id": "554857586067767298",
+        "id": "123456789012345678",
         "username": "testuser",
         "global_name": "Test User",
         "discriminator": "0",
@@ -28,7 +28,7 @@ async def test_whoami_returns_user_info_with_source(
 
     output = json.loads(capsys.readouterr().out)
     assert output == {
-        "id": "554857586067767298",
+        "id": "123456789012345678",
         "username": "testuser",
         "global_name": "Test User",
         "token_source": "config_file",

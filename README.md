@@ -1,8 +1,10 @@
 # discord-cli
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![ty](https://img.shields.io/badge/type%20checked-ty-blue)](https://github.com/astral-sh/ty) [![coverage](https://img.shields.io/badge/coverage-91%25-brightgreen)]()
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![ty](https://img.shields.io/badge/type%20checked-ty-blue)](https://github.com/astral-sh/ty) [![coverage](https://img.shields.io/badge/coverage-97%25-brightgreen)]()
 
 Read-only Discord CLI for coding agents. All output is JSON to stdout.
+
+![demo](demo.gif)
 
 Errors go to stderr as JSON. Every command accepts a `--token` flag to override credentials.
 
@@ -29,13 +31,17 @@ Extracts the user token from the Discord desktop app (must be logged in). On mac
 
 Supports both plaintext and encrypted tokens (AES-128-CBC and AES-256-GCM via Electron's safeStorage).
 
-## Features
+## Commands
 
 | I want to...                          | Command                                                                 |
 |---------------------------------------|-------------------------------------------------------------------------|
-| List all my servers                   | `discord-cli list servers`                                              |
+| Extract and save my token             | `discord-cli auth`                                                      |
+| See who I'm authenticated as          | `discord-cli whoami`                                                    |
+| List all my servers                   | `discord-cli list servers [--limit N]`                                  |
 | List channels in a server             | `discord-cli list channels <guild_id>`                                  |
 | List open DM conversations            | `discord-cli list dms`                                                  |
+| List members in a server              | `discord-cli list members <guild_id> [--role NAME] [--limit N]`         |
+| List threads in a channel             | `discord-cli list threads <channel_id>`                                 |
 | Read a channel's message history      | `discord-cli read channel <channel_id> [--limit N]`                     |
 | Read all messages in a thread         | `discord-cli read thread <thread_id> [--limit N]`                       |
 | Read a single message                 | `discord-cli read message <channel_id> <message_id>`                    |
@@ -46,6 +52,8 @@ Supports both plaintext and encrypted tokens (AES-128-CBC and AES-256-GCM via El
 | Download a file (image, doc, etc.)    | `discord-cli read file --url <url> [--output path]`                     |
 | Search messages in a server           | `discord-cli search messages <guild_id> <query> [--limit N]`            |
 | Search messages in a DM               | `discord-cli search dms <channel_id> <query> [--limit N]`               |
+| Stream real-time channel events       | `discord-cli stream channel <channel_id> [--event TYPE]`                |
+| Stream real-time server events        | `discord-cli stream server <guild_id> [--event TYPE]`                   |
 
 ## Data Flow
 
@@ -61,6 +69,102 @@ discord-cli read message 987654321 111111111
 ```
 
 Same pattern: `list servers` returns objects with an `id` field, which is the `guild_id` argument for `list channels`, `read server-info`, and `search messages`.
+
+## Flags
+
+### Global flags
+
+Every command accepts these flags:
+
+| Flag | Description |
+|------|-------------|
+| `--token` | Override token (skips config file / env var) |
+| `--quiet`, `-q` | Suppress stderr status messages |
+
+### Read flags
+
+Flags for `read channel` and `read thread`:
+
+| Flag | Description |
+|------|-------------|
+| `--limit N` | Max messages to fetch (default 50) |
+| `--compact` | Strip null fields and reduce author objects to id/username |
+| `--author ID` | Filter messages by author user ID |
+| `--skip-system` | Exclude join/pin/boost notifications |
+| `--resolve-channels` | Replace `<#id>` mentions with `#channel-name` |
+| `--resolve-mentions` | Replace `<@id>` mentions with `@username` |
+| `--flatten-embeds` | Extract embed content into a plaintext `embed_text` field |
+| `--max-bytes N` | Truncate output to fit within N bytes (context-aware) |
+| `--pinned` | Fetch only pinned messages |
+| `--before ID` | Pagination cursor: messages before this message ID |
+| `--after ID` | Pagination cursor: messages after this message ID |
+| `--since TIMESTAMP` | Fetch messages after an ISO 8601 timestamp |
+| `--chronological` | Output oldest messages first (default is newest first) |
+| `--format json\|jsonl\|text` | Output format (default `json`) |
+
+Flags for `read message`:
+
+| Flag | Description |
+|------|-------------|
+| `--compact` | Strip null fields and reduce author object |
+| `--flatten-embeds` | Extract embed content into plaintext |
+| `--format json\|jsonl\|text` | Output format |
+
+Flags for `read file`:
+
+| Flag | Description |
+|------|-------------|
+| `--url URL` | Direct CDN/attachment URL |
+| `--channel ID` `--message ID` `--filename NAME` | Fetch by message reference (re-fetches fresh URL) |
+| `--output PATH` | Write to file instead of stdout |
+
+### Search flags
+
+Flags for `search messages`:
+
+| Flag | Description |
+|------|-------------|
+| `--limit N` | Max results (default 25, Discord caps at 25 per page) |
+| `--channel ID` | Restrict search to a specific channel |
+| `--from ID` | Filter by author ID |
+| `--has TYPE` | Filter by attachment type (e.g. `file`, `image`, `link`) |
+| `--before DATE` | Messages before this ISO 8601 date |
+| `--after DATE` | Messages after this ISO 8601 date |
+| `--sort-by FIELD` | Sort field (default `timestamp`) |
+| `--sort-order asc\|desc` | Sort direction (default `desc`) |
+| `--offset N` | Skip first N results |
+| `--fallback-read` | If search returns 0 results, scan channel history instead (requires `--channel`) |
+
+Flags for `search dms`:
+
+| Flag | Description |
+|------|-------------|
+| `--limit N` | Max results (default 25) |
+| `--fallback-read` | Scan channel history if search returns 0 results |
+
+### List flags
+
+| Flag | Description |
+|------|-------------|
+| `list servers --limit N` | Max servers (default 200) |
+| `list members --role NAME` | Filter members by role name |
+| `list members --limit N` | Max members (default 1000) |
+
+### Stream flags
+
+| Flag | Description |
+|------|-------------|
+| `--event TYPE` | Filter to a specific event type (e.g. `MESSAGE_CREATE`) |
+
+### Performance flags
+
+Available on most commands:
+
+| Flag | Description |
+|------|-------------|
+| `--cache-ttl N` | Cache response for N seconds (default 0 = no cache) |
+| `--no-cache` | Bypass cached response |
+| `--rate-limit-info` | Include rate limit stats in output |
 
 ## Anti-Abuse Headers
 
